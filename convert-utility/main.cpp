@@ -18,7 +18,7 @@
  *
  */
 
-// a simple change
+// another simple change
 
 #include <stdio.h>
 #include <stdlib.h>
