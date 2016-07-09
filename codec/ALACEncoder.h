@@ -49,7 +49,7 @@ class ALACEncoder
 		void				GetConfig( ALACSpecificConfig & config );
         uint32_t            GetMagicCookieSize(uint32_t inNumChannels);
         void				GetMagicCookie( void * config, uint32_t * ioSize ); 
-
+//		void kALACSearch(int32_t mNumChannels, int32_t kALACMaxSearches);
         virtual int32_t	InitializeEncoder(AudioFormatDescription theOutputFormat);
 
     protected:

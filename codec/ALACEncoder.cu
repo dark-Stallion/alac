@@ -24,7 +24,7 @@
 
 // build stuff
 #define VERBOSE_DEBUG		0
-
+#define SIZE 1024
 // headers
 #include <stdio.h>
 #include <stdlib.h>
@@ -1248,6 +1248,21 @@ void ALACEncoder::GetMagicCookie(void * outCookie, uint32_t * ioSize)
 	InitializeEncoder()
 	- initialize the encoder component with the current config
 */
+
+/*
+__global__ void kALACSearch(int16_t * mCoefsU, int16_t * mCoefsV, int32_t mNumChannels, int32_t kALACMaxSearches)
+{
+	int i = blockIdx.x;
+	int j = threadIdx.x;
+
+	if (i<mNumChannels)
+		if (j < kALACMaxSearches){
+			init_coefs(mCoefsU[i][j], DENSHIFT_DEFAULT, kALACMaxCoefs);
+			init_coefs(mCoefsV[i][j], DENSHIFT_DEFAULT, kALACMaxCoefs);
+		}
+
+}*/
+
 int32_t ALACEncoder::InitializeEncoder(AudioFormatDescription theOutputFormat)
 {
 	int32_t			status;
@@ -1305,6 +1320,7 @@ int32_t ALACEncoder::InitializeEncoder(AudioFormatDescription theOutputFormat)
 
 
 	// initialize coefs arrays once b/c retaining state across blocks actually improves the encode ratio
+	//printf("size of mCoefsU %d ", sizeof(mCoefsV[0][1]));
 	for ( int32_t channel = 0; channel < (int32_t)mNumChannels; channel++ )
 	{
 		for ( int32_t search = 0; search < kALACMaxSearches; search++ )
@@ -1313,6 +1329,24 @@ int32_t ALACEncoder::InitializeEncoder(AudioFormatDescription theOutputFormat)
 			init_coefs( mCoefsV[channel][search], DENSHIFT_DEFAULT, kALACMaxCoefs );
 		}
 	}
+	/*
+	int16_t *d_mCoefsU, *d_mCoefsV;
+
+	cudaMalloc(&d_mCoefsU, SIZE * 4 * kALACMaxCoefs);
+	cudaMalloc(&d_mCoefsV, SIZE * 4 * kALACMaxCoefs);
+
+	cudaMemcpy(d_mCoefsU, mCoefsU, SIZE * 4 * kALACMaxCoefs, cudaMemcpyHostToDevice);
+	cudaMemcpy(d_mCoefsV, mCoefsV, SIZE * 4 * kALACMaxCoefs, cudaMemcpyHostToDevice);
+
+	kALACSearch<<< mNumChannels, kALACMaxSearches>>>(d_mCoefsU, d_mCoefsV, mNumChannels, kALACMaxSearches);
+
+	cudaMemcpy(mCoefsU, d_mCoefsU, SIZE * 4 * kALACMaxCoefs, cudaMemcpyDeviceToHost);
+	cudaMemcpy(mCoefsV, d_mCoefsV, SIZE * 4 * kALACMaxCoefs, cudaMemcpyDeviceToHost);
+
+	cudaFree(d_mCoefsU);
+	cudaFree(d_mCoefsV);
+	*/
+	//printf("size of mCoefsU %d ", sizeof(mCoefsV));
 
 Exit:
 	return status;

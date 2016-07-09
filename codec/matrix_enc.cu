@@ -26,8 +26,13 @@
 	Copyright:	(c) 2004-2011 Apple, Inc.
 */
 
+#include <stdio.h>
+#include <stdlib.h>
+
 #include "matrixlib.h"
 #include "ALACAudioTypes.h"
+
+#define SIZE 1024
 
 // up to 24-bit "offset" macros for the individual bytes of a 20/24-bit word
 #if TARGET_RT_BIG_ENDIAN
@@ -57,6 +62,19 @@
 
 // 16-bit routines
 
+__global__ void gpu_mix16(int16_t * ip, uint32_t stride, int32_t * u, int32_t * v, int32_t numSamples)
+{
+	int x = threadIdx.x;
+	int y = blockIdx.x;
+	int z = (SIZE * y) + x;
+	if (z < numSamples)
+	{
+		ip += stride * z;
+		u[z] = (int32_t)ip[0];
+		v[z] = (int32_t)ip[1];
+	}
+}
+
 void mix16( int16_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numSamples, int32_t mixbits, int32_t mixres )
 {
 	int16_t	*	ip = in;
@@ -83,12 +101,63 @@ void mix16( int16_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t num
 	else
 	{
 		/* Conventional separated stereo. */
+
+		printf("\n\n---------NEW---------\n\nNumber of Samples: %d\n", numSamples);
+
+		for (int i = 0; i < 10; i++){
+			printf("%x\t\t%d\t\t%d\t\t\t%d\t\t%d\n", ip + stride*i, ip[0], ip[1], u[i], v[i]);
+		}
+
+		printf("\n\n---------AFTER---------\n\n");
+		
+		int32_t *d_u, *d_v;
+		int16_t *d_ip;
+
+		cudaMalloc(&d_u, numSamples * sizeof(int32_t));
+		cudaMalloc(&d_v, numSamples * sizeof(int32_t));
+//		cudaMalloc(&d_ip, numSamples * sizeof(int16_t));
+
+		cudaMemcpy(d_u, u, numSamples * sizeof(int32_t), cudaMemcpyHostToDevice);
+		cudaMemcpy(d_v, v, numSamples * sizeof(int32_t), cudaMemcpyHostToDevice);
+//		cudaMemcpy(d_ip, ip, numSamples * sizeof(int16_t), cudaMemcpyHostToDevice);
+
+		int rem = (numSamples / SIZE) + 1;
+
+		gpu_mix16<<< rem, SIZE>>>(ip, stride, d_u, d_v, numSamples);
+
+		cudaMemcpy(u, d_u, numSamples * sizeof(int32_t), cudaMemcpyDeviceToHost);
+		cudaMemcpy(v, d_v, numSamples * sizeof(int32_t), cudaMemcpyDeviceToHost);
+//		cudaMemcpy(ip, d_ip, numSamples * sizeof(int16_t), cudaMemcpyDeviceToHost);
+
+		ip += stride * numSamples ;
+
+		for (int i = 0; i < 10; i++){
+			printf("%x\t\t%d\t\t%d\t\t\t%d\t\t%d\n", ip + stride*i, ip[0], ip[1], u[i], v[i]);
+		}
+
+
+		cudaFree(d_u);
+		cudaFree(d_v);
+		cudaFree(d_ip);
+
+/*		printf("\n\n---------NEW---------\n\nNumber of Samples: %d\n", numSamples);
+
+		for (int i = 0; i < 10; i++){
+			printf("%x\t\t%d\t\t%d\t\t\t%d\t\t%d\n", ip + stride*i, ip[0], ip[1], u[i], v[i]);
+		}
+
+		printf("\n\n---------AFTER---------\n\n");
+
 		for ( j = 0; j < numSamples; j++ )
 		{
 			u[j] = (int32_t) ip[0];
 			v[j] = (int32_t) ip[1];
 			ip += stride;
 		}
+
+		for (int i = 0; i < 10; i++){
+			printf("%x\t\t%d\t\t%d\t\t\t%d\t\t%d\n", ip + stride*i, ip[0], ip[1], u[i], v[i]);
+		}*/
 	}
 }
 

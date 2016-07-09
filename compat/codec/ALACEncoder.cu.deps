@@ -381,7 +381,12 @@ c:\program files\nvidia gpu computing toolkit\cuda\v7.5\include\vector_types.h
 E:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include\stdio.h
 E:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include\crtdefs.h
 E:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include\swprintf.inl
+c:\users\rafid\documents\github\alac\codec\ALACEncoder.h
 E:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include\stdint.h
 E:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include\crtdefs.h
 c:\users\rafid\documents\github\alac\codec\ALACAudioTypes.h
-c:\users\rafid\documents\github\alac\convert-utility\CAFFileALAC.h
+c:\users\rafid\documents\github\alac\codec\aglib.h
+c:\users\rafid\documents\github\alac\codec\dplib.h
+c:\users\rafid\documents\github\alac\codec\matrixlib.h
+c:\users\rafid\documents\github\alac\codec\ALACBitUtilities.h
+c:\users\rafid\documents\github\alac\codec\EndianPortable.h

@@ -26,8 +26,13 @@
 	Copyright:	(c) 2001-2011 Apple, Inc.
 */
 
+#include <stdio.h>
+#include <stdlib.h>
+
 #include "dplib.h"
 #include <string.h>
+
+#define SIZE 1024
 
 #if __GNUC__
 #define ALWAYS_INLINE		__attribute__((always_inline))
@@ -42,6 +47,13 @@
 #else
 #define LOOP_ALIGN
 #endif
+/*
+__global__ void gpu_init_coefs(int16_t * coefs, int32_t numPairs)
+{
+	int i = threadIdx.x;
+	if (i > 2 && i < numPairs)
+		coefs[i] = 0;
+}*/
 
 void init_coefs( int16_t * coefs, uint32_t denshift, int32_t numPairs )
 {
@@ -51,6 +63,19 @@ void init_coefs( int16_t * coefs, uint32_t denshift, int32_t numPairs )
 	coefs[0] = (AINIT * den) >> 4;
 	coefs[1] = (BINIT * den) >> 4;
 	coefs[2] = (CINIT * den) >> 4;
+
+/*	int16_t *d_coefs;
+
+	cudaMalloc(&d_coefs, numPairs * 4);
+
+	cudaMemcpy(d_coefs, coefs, numPairs * 4, cudaMemcpyHostToDevice);
+
+	gpu_init_coefs<<<1, numPairs>>>(d_coefs, numPairs);
+
+	cudaMemcpy(coefs, d_coefs, numPairs * 4, cudaMemcpyDeviceToHost);
+
+	cudaFree(d_coefs);*/
+
 	for ( k = 3; k < numPairs; k++ )
 		coefs[k]  = 0;
 }

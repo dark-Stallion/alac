@@ -21,6 +21,7 @@ IN NO EVENT SHALL APPLE BE LIABLE FOR ANY SPECIAL, INDIRECT, INCIDENTAL OR CONSE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 // these are headers for the ALAC encoder and decoder
 #include "ALACEncoder.h"
@@ -67,6 +68,9 @@ enum
 
 int32_t main(int32_t argc, char * argv[])
 {
+
+	clock_t start = clock();
+
 	char * inputFileName = argv[1];
 	char * outputFileName = argv[2];
 	FILE * inputFile = NULL;
@@ -186,6 +190,10 @@ int32_t main(int32_t argc, char * argv[])
 
 	if (inputFile) fclose(inputFile);
 	if (outputFile) fclose(outputFile);
+
+	clock_t stop = clock();
+	double elapsed = (double)(stop - start) * 1000.0 / CLOCKS_PER_SEC;
+	printf("\nTime elapsed in ms: %f \n", elapsed);
 
 	return 0;
 }
@@ -488,6 +496,7 @@ int32_t EncodeALAC(FILE * inputFile, FILE * outputFile, AudioFormatDescription t
 				}
 			}
 		}
+		// BIG LOOOP STARTS HERE !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 		theEncoder->Encode(theInputFormat, theInputFormat, theReadBuffer, theWriteBuffer, &numBytes);
 
 		GetBERInteger(numBytes, theReadBuffer, &theBERSize);
