@@ -87,6 +87,23 @@ __global__ void gpu_mix16_2(int16_t * ip, uint32_t stride, int32_t * u, int32_t 
 	}
 }
 
+__global__ void gpu_mix20_2(int16_t * ip, uint32_t stride, int32_t * u, int32_t * v, int32_t numSamples)
+{
+	int z = threadIdx.x + blockIdx.x * blockDim.x;
+	if (z < numSamples)
+	{
+		int32_t	l, r;
+
+		l = (int32_t)(((uint32_t)ip[HBYTE] << 16) | ((uint32_t)ip[MBYTE] << 8) | (uint32_t)ip[LBYTE]);
+		u[z] = (l << 8) >> 12;
+		ip += 3 * z;
+
+		r = (int32_t)(((uint32_t)ip[HBYTE] << 16) | ((uint32_t)ip[MBYTE] << 8) | (uint32_t)ip[LBYTE]);
+		v[z] = (r << 8) >> 12;
+		ip += (stride - 1) * 3 * z;
+	}
+}
+
 void mix16(int16_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numSamples, int32_t mixbits, int32_t mixres)
 {
 	int16_t	*	ip = in;
@@ -97,14 +114,15 @@ void mix16(int16_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numS
 
 	cudaMalloc(&d_u, numSamples * sizeof(int32_t));
 	cudaMalloc(&d_v, numSamples * sizeof(int32_t));
-	cudaMalloc(&d_ip, 2 * numSamples * sizeof(int16_t));
+	cudaMalloc(&d_ip, stride * numSamples * sizeof(int16_t));
 
 	cudaMemcpy(d_u, u, numSamples * sizeof(int32_t), cudaMemcpyHostToDevice);
 	cudaMemcpy(d_v, v, numSamples * sizeof(int32_t), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_ip, ip, 2 * numSamples * sizeof(int16_t), cudaMemcpyHostToDevice);
+	cudaMemcpy(d_ip, ip, stride * numSamples * sizeof(int16_t), cudaMemcpyHostToDevice);
 
 	if (mixres != 0)
 	{
+		printf("\nENTERS mix16 1\n");
 		int32_t		mod = 1 << mixbits;
 		int32_t		m2;
 
@@ -187,7 +205,7 @@ void mix16(int16_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numS
 
 	cudaMemcpy(u, d_u, numSamples * sizeof(int32_t), cudaMemcpyDeviceToHost);
 	cudaMemcpy(v, d_v, numSamples * sizeof(int32_t), cudaMemcpyDeviceToHost);
-	cudaMemcpy(ip, d_ip, 2 * numSamples * sizeof(int16_t), cudaMemcpyDeviceToHost);
+	cudaMemcpy(ip, d_ip, stride * numSamples * sizeof(int16_t), cudaMemcpyDeviceToHost);
 
 	cudaFree(d_u);
 	cudaFree(d_v);
@@ -203,12 +221,14 @@ void mix20(uint8_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numS
 	uint8_t *	ip = in;
 	int32_t			j;
 
+
 	if (mixres != 0)
 	{
+		printf("\nENTERS mix20 1\n");
 		/* matrixed stereo */
 		int32_t		mod = 1 << mixbits;
 		int32_t		m2 = mod - mixres;
-
+		printf("\nENTERS mix20 1\n");
 		for (j = 0; j < numSamples; j++)
 		{
 			l = (int32_t)(((uint32_t)ip[HBYTE] << 16) | ((uint32_t)ip[MBYTE] << 8) | (uint32_t)ip[LBYTE]);
@@ -225,6 +245,22 @@ void mix20(uint8_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numS
 	}
 	else
 	{
+
+		/*int32_t *d_u, *d_v;
+		int16_t *d_ip;
+
+		cudaMalloc(&d_u, numSamples * sizeof(int32_t));
+		cudaMalloc(&d_v, numSamples * sizeof(int32_t));
+		cudaMalloc(&d_ip, stride * numSamples * sizeof(int16_t));
+
+		cudaMemcpy(d_u, u, numSamples * sizeof(int32_t), cudaMemcpyHostToDevice);
+		cudaMemcpy(d_v, v, numSamples * sizeof(int32_t), cudaMemcpyHostToDevice);
+		cudaMemcpy(d_ip, ip, (stride-1) * 3 * numSamples * sizeof(int16_t), cudaMemcpyHostToDevice);
+
+		gpu_mix20_2 << < (numSamples + SIZE - 1) / SIZE, SIZE >> >(d_ip, stride, d_u, d_v, numSamples);*/
+
+		printf("\nENTERS mix20 2\n");
+
 		/* Conventional separated stereo. */
 		for (j = 0; j < numSamples; j++)
 		{
@@ -236,6 +272,15 @@ void mix20(uint8_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numS
 			v[j] = (r << 8) >> 12;
 			ip += (stride - 1) * 3;
 		}
+
+		/*cudaMemcpy(u, d_u, numSamples * sizeof(int32_t), cudaMemcpyDeviceToHost);
+		cudaMemcpy(v, d_v, numSamples * sizeof(int32_t), cudaMemcpyDeviceToHost);
+		cudaMemcpy(ip, d_ip, stride * numSamples * sizeof(int16_t), cudaMemcpyDeviceToHost);
+
+		cudaFree(d_u);
+		cudaFree(d_v);
+		cudaFree(d_ip);*/
+
 	}
 }
 
@@ -259,6 +304,7 @@ void mix24(uint8_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numS
 
 		if (bytesShifted != 0)
 		{
+			printf("\nENTERS mix24 1\n");
 			for (j = 0, k = 0; j < numSamples; j++, k += 2)
 			{
 				l = (int32_t)(((uint32_t)ip[HBYTE] << 16) | ((uint32_t)ip[MBYTE] << 8) | (uint32_t)ip[LBYTE]);
@@ -281,6 +327,7 @@ void mix24(uint8_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numS
 		}
 		else
 		{
+			
 			for (j = 0; j < numSamples; j++)
 			{
 				l = (int32_t)(((uint32_t)ip[HBYTE] << 16) | ((uint32_t)ip[MBYTE] << 8) | (uint32_t)ip[LBYTE]);
@@ -299,6 +346,7 @@ void mix24(uint8_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numS
 	else
 	{
 		/* Conventional separated stereo. */
+		printf("\nENTERS mix24 2\n");
 		if (bytesShifted != 0)
 		{
 			for (j = 0, k = 0; j < numSamples; j++, k += 2)
@@ -353,6 +401,7 @@ void mix32(int32_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numS
 
 	if (mixres != 0)
 	{
+		printf("\nENTERS mix32 1\n");
 		int32_t		mod = 1 << mixbits;
 		int32_t		m2;
 
@@ -378,6 +427,7 @@ void mix32(int32_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numS
 	}
 	else
 	{
+		printf("\nENTERS mix32 2\n");
 		if (bytesShifted == 0)
 		{
 			/* de-interleaving w/o shift */
