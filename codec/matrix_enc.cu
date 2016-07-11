@@ -108,6 +108,9 @@ void mix16(int16_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numS
 
 		printf("\n\n---------AFTER---------\n\n");*/
 
+		//Test this is working -sazib
+
+		int32_t *x1;
 		int32_t *d_u, *d_v;
 		int16_t *d_ip;
 
