@@ -47,13 +47,13 @@
 #else
 #define LOOP_ALIGN
 #endif
-/*
+
 __global__ void gpu_init_coefs(int16_t * coefs, int32_t numPairs)
 {
 	int i = threadIdx.x;
 	if (i > 2 && i < numPairs)
 		coefs[i] = 0;
-}*/
+}
 
 void init_coefs( int16_t * coefs, uint32_t denshift, int32_t numPairs )
 {

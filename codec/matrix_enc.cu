@@ -102,15 +102,15 @@ void mix16( int16_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t num
 	{
 		/* Conventional separated stereo. */
 
-		printf("\n\n---------NEW---------\n\nNumber of Samples: %d\n", numSamples);
+/*		printf("\n\n---------NEW---------\n\nNumber of Samples: %d\n", numSamples);
 
 		for (int i = 0; i < 10; i++){
 			printf("%x\t\t%d\t\t%d\t\t\t%d\t\t%d\n", ip + stride*i, ip[0], ip[1], u[i], v[i]);
 		}
 
-		printf("\n\n---------AFTER---------\n\n");
+		printf("\n\n---------AFTER---------\n\n");*/
 		
-		int32_t *d_u, *d_v;
+/*		int32_t *d_u, *d_v;
 		int16_t *d_ip;
 
 		cudaMalloc(&d_u, numSamples * sizeof(int32_t));
@@ -138,7 +138,7 @@ void mix16( int16_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t num
 
 		cudaFree(d_u);
 		cudaFree(d_v);
-		cudaFree(d_ip);
+		cudaFree(d_ip);*/
 
 /*		printf("\n\n---------NEW---------\n\nNumber of Samples: %d\n", numSamples);
 
@@ -146,8 +146,12 @@ void mix16( int16_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t num
 			printf("%x\t\t%d\t\t%d\t\t\t%d\t\t%d\n", ip + stride*i, ip[0], ip[1], u[i], v[i]);
 		}
 
-		printf("\n\n---------AFTER---------\n\n");
-
+		printf("\n\n---------AFTER---------\n\n");*/
+		int16_t *dip = (int16_t *)malloc(numSamples * sizeof(int16_t) * 2);
+		memcpy(dip, ip, numSamples * sizeof(int16_t));
+		printf("%x \t\t %x \t\t %d \t\t %d \n", ip, ip + 2, ip[0], (ip + 2)[0]);
+		printf("%x \t\t %x \t\t %d \t\t %d \n\n", dip, dip + 2, dip[0], (dip + 2)[0]);
+		free(dip);
 		for ( j = 0; j < numSamples; j++ )
 		{
 			u[j] = (int32_t) ip[0];
@@ -155,7 +159,8 @@ void mix16( int16_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t num
 			ip += stride;
 		}
 
-		for (int i = 0; i < 10; i++){
+
+/*		for (int i = 0; i < 10; i++){
 			printf("%x\t\t%d\t\t%d\t\t\t%d\t\t%d\n", ip + stride*i, ip[0], ip[1], u[i], v[i]);
 		}*/
 	}
