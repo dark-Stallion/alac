@@ -90,7 +90,7 @@ __global__ void gpu_mix16_2(int16_t * ip, uint32_t stride, int32_t * u, int32_t 
 void mix16(int16_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numSamples, int32_t mixbits, int32_t mixres)
 {
 	int16_t	*	ip = in;
-//	int32_t			j;
+	//	int32_t			j;
 
 	int32_t *d_u, *d_v;
 	int16_t *d_ip;
@@ -110,15 +110,15 @@ void mix16(int16_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numS
 
 		/* matrixed stereo */
 		m2 = mod - mixres;
-/*		for (j = 0; j < numSamples; j++)
+		/*		for (j = 0; j < numSamples; j++)
 		{
-			int32_t		l, r;
+		int32_t		l, r;
 
-			l = (int32_t)ip[0];
-			r = (int32_t)ip[1];
-			ip += stride;
-			u[j] = (mixres * l + m2 * r) >> mixbits;
-			v[j] = l - r;
+		l = (int32_t)ip[0];
+		r = (int32_t)ip[1];
+		ip += stride;
+		u[j] = (mixres * l + m2 * r) >> mixbits;
+		v[j] = l - r;
 		}*/
 		gpu_mix16_1 << < (numSamples + SIZE - 1) / SIZE, SIZE >> >(d_ip, stride, d_u, d_v, numSamples, m2, mixbits, mixres);
 	}
@@ -137,14 +137,14 @@ void mix16(int16_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numS
 
 		gpu_mix16_2 << < (numSamples + SIZE - 1) / SIZE, SIZE >> >(d_ip, stride, d_u, d_v, numSamples);
 
-		
+
 
 		/*		for (int i = 0; i < 10; i++){
 		printf("%x\t\t%d\t\t%d\t\t\t%d\t\t%d\n", ip + stride*i, ip[0], ip[1], u[i], v[i]);
 		}*/
 
 
-		
+
 
 		/*		printf("\n\n---------NEW---------\n\nNumber of Samples: %d\n", numSamples);
 
