@@ -32,6 +32,10 @@
 #include "dplib.h"
 #include <string.h>
 
+#include <cuda.h>
+#include <cuda_runtime.h>
+#include "device_launch_parameters.h"
+
 #define SIZE 512
 
 #if __GNUC__
@@ -83,7 +87,7 @@ void init_coefs( int16_t * coefs, uint32_t denshift, int32_t numPairs )
 void copy_coefs( int16_t * srcCoefs, int16_t * dstCoefs, int32_t numPairs )
 {
 	int32_t k;
-	printf("\ncopy_coefs %d\n", numPairs);
+//	printf("\ncopy_coefs %d\n", numPairs);
 	for ( k = 0; k < numPairs; k++ )
 		dstCoefs[k] = srcCoefs[k];
 }
@@ -96,11 +100,77 @@ static inline int32_t ALWAYS_INLINE sign_of_int( int32_t i )		// <------- use in
     return negishift | (i >> 31);
 }
 
-__global__ gpu_pc_block(int32_t *d_rpin, int32_t *d_in, int32_t *d_pc1, int32_t num, int32_t top, int32_t b0, int32_t b1, int32_t b2,
-	int32_t b3, int32_t sum1, int32_t denhalf, uint32_t denshift, int16_t a0, int16_t a1, int16_t a2, int16_t a3, int32_t del, int32_t sg, int32_t del0)
+__global__ void gpu_pc_block(int32_t *pin, int32_t *in, int32_t *pc1, int32_t lim, int32_t num, int32_t top, int32_t b0, int32_t b1, int32_t b2,
+	int32_t b3, int32_t sum1, int32_t denhalf, uint32_t denshift, int16_t *a0, int16_t *a1, int16_t *a2, int16_t *a3, int32_t del, int32_t sg, int32_t del0, uint32_t chanshift, int32_t sgn)
 {
 
+	int z = threadIdx.x + blockIdx.x * blockDim.x; 
+	if (z >= lim && z < num)
+	{
+		top = in[z - lim];
+		pin = in + z - 1;
 
+		b0 = top - pin[0];
+		b1 = top - pin[-1];
+		b2 = top - pin[-2];
+		b3 = top - pin[-3];
+
+		sum1 = (denhalf - *a0 * b0 - *a1 * b1 - *a2 * b2 - *a3 * b3) >> denshift;
+
+		del = in[z] - top - sum1;
+		del = (del << chanshift) >> chanshift;
+		pc1[z] = del;
+		del0 = del;
+
+		sg = (del<0)?-1:(del>0)?1:0;
+		if (sg > 0)
+		{
+			sgn = (b3<0) ? -1 : (b3>0) ? 1 : 0;
+			atomicSub(a3, sgn);
+			del0 -= (4 - 3) * ((sgn * b3) >> denshift);
+			if (del0 <= 0)
+				return;
+
+			sgn = (b2<0) ? -1 : (b2>0) ? 1 : 0;
+			atomicSub(a2, sgn);
+			del0 -= (4 - 2) * ((sgn * b2) >> denshift);
+			if (del0 <= 0)
+				return;
+
+			sgn = (b1<0) ? -1 : (b1>0) ? 1 : 0;
+			atomicSub(a3, sgn);
+			del0 -= (4 - 1) * ((sgn * b1) >> denshift);
+			if (del0 <= 0)
+				return;
+
+			sgn = (b0<0) ? -1 : (b0>0) ? 1 : 0;
+			atomicSub(a0, sgn);
+		}
+		else if (sg < 0)
+		{
+			// note: to avoid unnecessary negations, we flip the value of "sgn"
+			sgn = -((b3<0) ? -1 : (b3>0) ? 1 : 0);
+			atomicSub(a3, sgn);
+			del0 -= (4 - 3) * ((sgn * b3) >> denshift);
+			if (del0 >= 0)
+				return;
+
+			sgn = -((b2<0) ? -1 : (b2>0) ? 1 : 0);
+			atomicSub(a2, sgn);
+			del0 -= (4 - 2) * ((sgn * b2) >> denshift);
+			if (del0 >= 0)
+				return;
+
+			sgn = -((b1<0) ? -1 : (b1>0) ? 1 : 0);
+			atomicSub(a1, sgn);
+			del0 -= (4 - 1) * ((sgn * b1) >> denshift);
+			if (del0 >= 0)
+				return;
+
+			sgn = (b0<0) ? -1 : (b0>0) ? 1 : 0;
+			atomicAdd(a0, sgn);
+		}
+	}
 }
 
 void pc_block(int32_t * in, int32_t * pc1, int32_t num, int16_t * coefs, int32_t numactive, uint32_t chanbits, uint32_t denshift)
@@ -126,7 +196,7 @@ void pc_block(int32_t * in, int32_t * pc1, int32_t num, int16_t * coefs, int32_t
 	}
 	if ( numactive == 31 )
 	{
-		printf("\npc_block (numactive == 31) %d\n", num);
+//		printf("\npc_block (numactive == 31) %d\n", num);
 		// short-circuit if numactive == 31
 		for( j = 1; j < num; j++ )
 		{
@@ -135,7 +205,7 @@ void pc_block(int32_t * in, int32_t * pc1, int32_t num, int16_t * coefs, int32_t
 		}
 		return;
 	}
-	printf("\npc_block %d\n", numactive);
+//	printf("\npc_block %d\n", numactive);
 	for ( j = 1; j <= numactive; j++ )
 	{
 		del = in[j] - in[j-1];
@@ -151,25 +221,33 @@ void pc_block(int32_t * in, int32_t * pc1, int32_t num, int16_t * coefs, int32_t
 		a1 = coefs[1];
 		a2 = coefs[2];
 		a3 = coefs[3];
-		printf("\npc_block (numactive == 4) %d %d\n", lim, num);
+//		printf("\npc_block (numactive == 4) %d %d\n", lim, num);
 
 
-		int32_t *d_rpin, *d_in, *d_pc1;
+		int32_t *d_pin, *d_in, *d_pc1;
+		int16_t	*d_a0, *d_a1, *d_a2, *d_a3;
 
-		int32_t *r_pin = pin[-3];
-
-		cudaMalloc(&d_rpin, 4 * sizeof(int32_t));
+		cudaMalloc(&d_pin, sizeof(int32_t));
 		cudaMalloc(&d_in, num * sizeof(int32_t));
 		cudaMalloc(&d_pc1, num * sizeof(int32_t));
 
-		cudaMemcpy(d_rpin, r_pin, 4 * sizeof(int32_t), cudaMemcpyHostToDevice);
-		cudaMemcpy(d_in, v, num * sizeof(int32_t), cudaMemcpyHostToDevice);
-		cudaMemcpy(d_pc1, ip, num * sizeof(int32_t), cudaMemcpyHostToDevice);
+		cudaMalloc((void**)&d_a0, sizeof(int16_t));
+		cudaMalloc((void**)&d_a1, sizeof(int16_t));
+		cudaMalloc((void**)&d_a2, sizeof(int16_t));
+		cudaMalloc((void**)&d_a3, sizeof(int16_t));
 
-		gpu_pc_block << <(num + SIZE - 1) / SIZE, SIZE >> >(d_rpin, d_in, d_pc1, num, top, b0, b1, b2, b3, sum1, denhalf, denshift,
-			a0, a1, a2, a3, del, sg, del0);
+		cudaMemcpy(d_in, in, num * sizeof(int32_t), cudaMemcpyHostToDevice);
+		cudaMemcpy(d_pc1, pc1, num * sizeof(int32_t), cudaMemcpyHostToDevice);
 
-		for ( j = lim; j < num; j++ )			// <---------------------- make parallel
+		cudaMemcpy(d_a0, &a0, sizeof(int16_t), cudaMemcpyHostToDevice);
+		cudaMemcpy(d_a1, &a1, sizeof(int16_t), cudaMemcpyHostToDevice);
+		cudaMemcpy(d_a2, &a2, sizeof(int16_t), cudaMemcpyHostToDevice);
+		cudaMemcpy(d_a3, &a3, sizeof(int16_t), cudaMemcpyHostToDevice);
+
+		gpu_pc_block<<<(num + SIZE - 1) / SIZE, SIZE >>>(d_pin, d_in, d_pc1, lim, num, top, b0, b1, b2, b3, sum1, denhalf, denshift,
+			d_a0, d_a1, d_a2, d_a3, del, sg, del0, chanshift, sgn);
+
+/*		for ( j = lim; j < num; j++ )			// <---------------------- make parallel
 		{
 //			LOOP_ALIGN
 
@@ -192,24 +270,28 @@ void pc_block(int32_t * in, int32_t * pc1, int32_t num, int16_t * coefs, int32_t
 			if ( sg > 0 )
 			{
 				sgn = sign_of_int( b3 );
+				printf("%d\t%d\n", b3, sgn);
 				a3 -= sgn;
 				del0 -= (4 - 3) * ((sgn * b3) >> denshift);
 				if ( del0 <= 0 )
 					continue;
 				
 				sgn = sign_of_int( b2 );
+				printf("%d\t%d\n", b2, sgn);
 				a2 -= sgn;
 				del0 -= (4 - 2) * ((sgn * b2) >> denshift);
 				if ( del0 <= 0 )
 					continue;
 				
 				sgn = sign_of_int( b1 );
+				printf("%d\t%d\n", b1, sgn);
 				a1 -= sgn;
 				del0 -= (4 - 1) * ((sgn * b1) >> denshift);
 				if ( del0 <= 0 )
 					continue;
 
 				a0 -= sign_of_int( b0 );
+				printf("%d\n\n\n", b0);
 			}
 			else if ( sg < 0 )
 			{
@@ -234,7 +316,21 @@ void pc_block(int32_t * in, int32_t * pc1, int32_t num, int16_t * coefs, int32_t
 
 				a0 += sign_of_int( b0 );
 			}
-		}
+		}*/
+
+		cudaMemcpy(&a0, d_a0, sizeof(int16_t), cudaMemcpyDeviceToHost);
+		cudaMemcpy(&a1, d_a1, sizeof(int16_t), cudaMemcpyDeviceToHost);
+		cudaMemcpy(&a2, d_a2, sizeof(int16_t), cudaMemcpyDeviceToHost);
+		cudaMemcpy(&a3, d_a3, sizeof(int16_t), cudaMemcpyDeviceToHost);
+
+		cudaFree(d_pin);
+		cudaFree(d_in);
+		cudaFree(d_pc1);
+
+		cudaFree(d_a0);
+		cudaFree(d_a1);
+		cudaFree(d_a2);
+		cudaFree(d_a3);
 
 		coefs[0] = a0;
 		coefs[1] = a1;
@@ -255,7 +351,7 @@ void pc_block(int32_t * in, int32_t * pc1, int32_t num, int16_t * coefs, int32_t
 		a5 = coefs[5];
 		a6 = coefs[6];
 		a7 = coefs[7];
-		printf("\npc_block (numactive == 8) %d %d\n", lim, num);
+//		printf("\npc_block (numactive == 8) %d %d\n", lim, num);
 		for ( j = lim; j < num; j++ )			// <---------------------- make parallel
 		{
 			LOOP_ALIGN
@@ -390,7 +486,7 @@ void pc_block(int32_t * in, int32_t * pc1, int32_t num, int16_t * coefs, int32_t
 	{
 //pc_block_general:
 		// general case
-		printf("\npc_block general %d %d\n", lim, num);
+//		printf("\npc_block general %d %d\n", lim, num);
 		for ( j = lim; j < num; j++ )
 		{
 			LOOP_ALIGN

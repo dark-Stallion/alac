@@ -55,6 +55,9 @@
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
+    <CudaCompile>
+      <CodeGeneration>compute_20,sm_20</CodeGeneration>
+    </CudaCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
@@ -82,7 +85,9 @@
     <ClCompile Include="..\..\..\codec\ALACDecoder.cpp" />
     <CudaCompile Include="..\..\..\codec\ALACEncoder.cu" />
     <ClCompile Include="..\..\..\codec\dp_dec.c" />
-    <CudaCompile Include="..\..\..\codec\dp_enc.cu" />
+    <CudaCompile Include="..\..\..\codec\dp_enc.cu">
+      <CodeGeneration Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">compute_20,sm_20</CodeGeneration>
+    </CudaCompile>
     <ClCompile Include="..\..\..\codec\EndianPortable.c" />
     <ClCompile Include="..\..\..\codec\matrix_dec.c" />
     <CudaCompile Include="..\..\..\codec\matrix_enc.cu" />
