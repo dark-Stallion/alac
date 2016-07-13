@@ -122,7 +122,7 @@ void mix16(int16_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numS
 
 	if (mixres != 0)
 	{
-		printf("\nENTERS mix16 1\n");
+//		printf("\nENTERS mix16 1\n");
 		int32_t		mod = 1 << mixbits;
 		int32_t		m2;
 
@@ -259,7 +259,7 @@ void mix20(uint8_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numS
 
 		gpu_mix20_2 << < (numSamples + SIZE - 1) / SIZE, SIZE >> >(d_ip, stride, d_u, d_v, numSamples);*/
 
-		printf("\nENTERS mix20 2\n");
+//		printf("\nENTERS mix20 2\n");
 
 		/* Conventional separated stereo. */
 		for (j = 0; j < numSamples; j++)
@@ -304,7 +304,7 @@ void mix24(uint8_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numS
 
 		if (bytesShifted != 0)
 		{
-			printf("\nENTERS mix24 1\n");
+//			printf("\nENTERS mix24 1\n");
 			for (j = 0, k = 0; j < numSamples; j++, k += 2)
 			{
 				l = (int32_t)(((uint32_t)ip[HBYTE] << 16) | ((uint32_t)ip[MBYTE] << 8) | (uint32_t)ip[LBYTE]);
@@ -346,7 +346,7 @@ void mix24(uint8_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numS
 	else
 	{
 		/* Conventional separated stereo. */
-		printf("\nENTERS mix24 2\n");
+//		printf("\nENTERS mix24 2\n");
 		if (bytesShifted != 0)
 		{
 			for (j = 0, k = 0; j < numSamples; j++, k += 2)
@@ -401,7 +401,7 @@ void mix32(int32_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numS
 
 	if (mixres != 0)
 	{
-		printf("\nENTERS mix32 1\n");
+//		printf("\nENTERS mix32 1\n");
 		int32_t		mod = 1 << mixbits;
 		int32_t		m2;
 
@@ -427,7 +427,7 @@ void mix32(int32_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numS
 	}
 	else
 	{
-		printf("\nENTERS mix32 2\n");
+//		printf("\nENTERS mix32 2\n");
 		if (bytesShifted == 0)
 		{
 			/* de-interleaving w/o shift */
@@ -466,7 +466,6 @@ void copy20ToPredictor(uint8_t * in, uint32_t stride, int32_t * out, int32_t num
 {
 	uint8_t *	ip = in;
 	int32_t			j;
-
 	for (j = 0; j < numSamples; j++)
 	{
 		int32_t			val;
@@ -482,7 +481,6 @@ void copy24ToPredictor(uint8_t * in, uint32_t stride, int32_t * out, int32_t num
 {
 	uint8_t *	ip = in;
 	int32_t			j;
-
 	for (j = 0; j < numSamples; j++)
 	{
 		int32_t			val;
