@@ -80,7 +80,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\..\..\codec\ag_dec.c" />
-    <ClCompile Include="..\..\..\codec\ag_enc.c" />
+    <CudaCompile Include="..\..\..\codec\ag_enc.cu" />
     <ClCompile Include="..\..\..\codec\ALACBitUtilities.c" />
     <ClCompile Include="..\..\..\codec\ALACDecoder.cpp" />
     <CudaCompile Include="..\..\..\codec\ALACEncoder.cu" />

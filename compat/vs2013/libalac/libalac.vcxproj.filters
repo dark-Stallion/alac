@@ -18,9 +18,6 @@
     <ClCompile Include="..\..\..\codec\ag_dec.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\codec\ag_enc.c">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\..\codec\ALACBitUtilities.c">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -71,6 +68,9 @@
       <Filter>Source Files</Filter>
     </CudaCompile>
     <CudaCompile Include="..\..\..\codec\matrix_enc.cu">
+      <Filter>Source Files</Filter>
+    </CudaCompile>
+    <CudaCompile Include="..\..\..\codec\ag_enc.cu">
       <Filter>Source Files</Filter>
     </CudaCompile>
   </ItemGroup>

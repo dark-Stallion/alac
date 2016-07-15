@@ -246,6 +246,26 @@ static inline void ALWAYS_INLINE dyn_jam_noDeref_large(unsigned char *out, uint3
 	*i = Swap32BtoN( w );
 }
 
+/* //-s
+__global__ void gpu_dyn_comp_1(int32_t rowpos, int32_t numSamples, uint32_t m, uint32_t mb, uint32_t k, uint32_t kb, int32_t del, int32_t *inPtr, int32_t result)
+{
+	int i = threadIdx.x;
+
+	m = mb >> QBSHIFT;
+	//k = lg3a(m);
+	m += 3;
+	reasult = lead(m);
+	k = 31 - result;
+	if (k > kb)
+	{
+		k = kb;
+	}
+	m = (1 << k) - 1;
+
+	del = *inPtr++;
+	rowPos++;
+
+} */
 
 int32_t dyn_comp( AGParamRecPtr params, int32_t * pc, BitBuffer * bitstream, int32_t numSamples, int32_t bitSize, uint32_t * outNumBits )
 {
@@ -264,7 +284,7 @@ int32_t dyn_comp( AGParamRecPtr params, int32_t * pc, BitBuffer * bitstream, int
     int32_t					rowSize = params->sw;
     int32_t					rowJump = (params->fw) - rowSize;
     int32_t *			inPtr = pc;
-
+//	int32_t				result; //-s
 	*outNumBits = 0;
 	RequireAction( (bitSize >= 1) && (bitSize <= 32), return kALAC_ParamError; );
 
@@ -281,9 +301,12 @@ int32_t dyn_comp( AGParamRecPtr params, int32_t * pc, BitBuffer * bitstream, int
     c=0;
 	status = ALAC_noErr;
 
+/*	int32_t rowpos, int32_t numSamples, uint32_t m, uint32_t mb, uint32_t k, uint32_t kb, int32_t del, int32_t *inPtr int32_t result*/ //-s
+	
+
     while (c < numSamples)
     {
-        m  = mb >> QBSHIFT;
+         m  = mb >> QBSHIFT;
         k = lg3a(m);
         if ( k > kb)
         {
@@ -293,7 +316,7 @@ int32_t dyn_comp( AGParamRecPtr params, int32_t * pc, BitBuffer * bitstream, int
 
         del = *inPtr++;
         rowPos++;
-
+		
         n = (abs_func(del) << 1) - ((del >> 31) & 1) - zmode;
 		//Assert( 32-lead(n) <= bitSize );
 
@@ -332,7 +355,7 @@ int32_t dyn_comp( AGParamRecPtr params, int32_t * pc, BitBuffer * bitstream, int
             zmode = 1;
             nz = 0;
 
-            while(c<numSamples && *inPtr == 0)
+            while(c<numSamples && *inPtr == 0) //workable in cuda need to check -s
             {
             	/* Take care of wrap-around globals. */
                 ++inPtr;
