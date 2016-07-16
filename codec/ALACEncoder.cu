@@ -29,7 +29,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
+#include <cuda.h>
+#include <cuda_runtime.h>
 #include "ALACEncoder.h"
 
 #include "aglib.h"
@@ -1249,19 +1250,30 @@ void ALACEncoder::GetMagicCookie(void * outCookie, uint32_t * ioSize)
 	- initialize the encoder component with the current config
 */
 
-/*
-__global__ void kALACSearch(int16_t * mCoefsU, int16_t * mCoefsV, int32_t mNumChannels, int32_t kALACMaxSearches)
+
+__global__ void kALACSearch(int16_t * mCoefsU, int16_t * mCoefsV, int32_t kALACMaxCoefs)
 {
-	int i = blockIdx.x;
-	int j = threadIdx.x;
+	int x = blockIdx.x;
+	int y = threadIdx.x;
 
-	if (i<mNumChannels)
-		if (j < kALACMaxSearches){
-			init_coefs(mCoefsU[i][j], DENSHIFT_DEFAULT, kALACMaxCoefs);
-			init_coefs(mCoefsV[i][j], DENSHIFT_DEFAULT, kALACMaxCoefs);
-		}
+	int index = x * 16 * 16 + y * 16;
+	int32_t		k;
+	int32_t		den = 1 << DENSHIFT_DEFAULT;
 
-}*/
+	mCoefsU[index + 0] = (AINIT * den) >> 4;
+	mCoefsU[index + 1] = (BINIT * den) >> 4;
+	mCoefsU[index + 2] = (CINIT * den) >> 4;
+
+	mCoefsV[index + 0] = (AINIT * den) >> 4;
+	mCoefsV[index + 1] = (BINIT * den) >> 4;
+	mCoefsV[index + 2] = (CINIT * den) >> 4;
+
+	for (k = 3; k < kALACMaxCoefs; k++)
+	{
+		mCoefsU[index + k] = 0;
+		mCoefsV[index + k] = 0;
+	}
+}
 
 int32_t ALACEncoder::InitializeEncoder(AudioFormatDescription theOutputFormat)
 {
@@ -1321,31 +1333,34 @@ int32_t ALACEncoder::InitializeEncoder(AudioFormatDescription theOutputFormat)
 
 	// initialize coefs arrays once b/c retaining state across blocks actually improves the encode ratio
 	//printf("size of mCoefsU %d ", sizeof(mCoefsV[0][1]));
-	for ( int32_t channel = 0; channel < (int32_t)mNumChannels; channel++ )
+	/*for ( int32_t channel = 0; channel < (int32_t)mNumChannels; channel++ )
 	{
 		for ( int32_t search = 0; search < kALACMaxSearches; search++ )
 		{
 			init_coefs( mCoefsU[channel][search], DENSHIFT_DEFAULT, kALACMaxCoefs );
 			init_coefs( mCoefsV[channel][search], DENSHIFT_DEFAULT, kALACMaxCoefs );
 		}
-	}
-	/*
+	}*/
+	
+	void *p1 = mCoefsU;
+	void *p2 = mCoefsV;
+
 	int16_t *d_mCoefsU, *d_mCoefsV;
 
-	cudaMalloc(&d_mCoefsU, SIZE * 4 * kALACMaxCoefs);
-	cudaMalloc(&d_mCoefsV, SIZE * 4 * kALACMaxCoefs);
+	cudaMalloc(&d_mCoefsU, sizeof(int16_t) * 8 * 16 * 16);
+	cudaMalloc(&d_mCoefsV, sizeof(int16_t) * 8 * 16 * 16);
 
-	cudaMemcpy(d_mCoefsU, mCoefsU, SIZE * 4 * kALACMaxCoefs, cudaMemcpyHostToDevice);
-	cudaMemcpy(d_mCoefsV, mCoefsV, SIZE * 4 * kALACMaxCoefs, cudaMemcpyHostToDevice);
+	cudaMemcpy(d_mCoefsU, p1, sizeof(int16_t) * 8 * 16 * 16, cudaMemcpyHostToDevice);
+	cudaMemcpy(d_mCoefsV, p2, sizeof(int16_t) * 8 * 16 * 16, cudaMemcpyHostToDevice);
 
-	kALACSearch<<< mNumChannels, kALACMaxSearches>>>(d_mCoefsU, d_mCoefsV, mNumChannels, kALACMaxSearches);
+	kALACSearch<<< mNumChannels, kALACMaxSearches>>>(d_mCoefsU, d_mCoefsV, kALACMaxCoefs);
 
-	cudaMemcpy(mCoefsU, d_mCoefsU, SIZE * 4 * kALACMaxCoefs, cudaMemcpyDeviceToHost);
-	cudaMemcpy(mCoefsV, d_mCoefsV, SIZE * 4 * kALACMaxCoefs, cudaMemcpyDeviceToHost);
+	cudaMemcpy(p1, d_mCoefsU, sizeof(int16_t) * 8 * 16 * 16, cudaMemcpyDeviceToHost);
+	cudaMemcpy(p2, d_mCoefsV, sizeof(int16_t) * 8 * 16 * 16, cudaMemcpyDeviceToHost);
 
 	cudaFree(d_mCoefsU);
 	cudaFree(d_mCoefsV);
-	*/
+	
 	//printf("size of mCoefsU %d ", sizeof(mCoefsV));
 
 Exit:

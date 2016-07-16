@@ -84,13 +84,13 @@ void init_coefs( int16_t * coefs, uint32_t denshift, int32_t numPairs )
 		coefs[k]  = 0;
 }
 
-void copy_coefs( int16_t * srcCoefs, int16_t * dstCoefs, int32_t numPairs )
-{
-	int32_t k;
-//	printf("\ncopy_coefs %d\n", numPairs);
-	for ( k = 0; k < numPairs; k++ )
-		dstCoefs[k] = srcCoefs[k];
-}
+//void copy_coefs( int16_t * srcCoefs, int16_t * dstCoefs, int32_t numPairs )
+//{
+//	int32_t k;
+////	printf("\ncopy_coefs %d\n", numPairs);
+//	for ( k = 0; k < numPairs; k++ )
+//		dstCoefs[k] = srcCoefs[k];
+//}
 
 static inline int32_t ALWAYS_INLINE sign_of_int( int32_t i )		// <------- use in parallel method
 {
@@ -326,12 +326,12 @@ void pc_block(int32_t * in, int32_t * pc1, int32_t num, int16_t * coefs, int32_t
 		cudaFree(d_a0);
 		cudaFree(d_a1);
 		cudaFree(d_a2);
-		cudaFree(d_a3);
+		cudaFree(d_a3);*/
 
 		coefs[0] = a0;
 		coefs[1] = a1;
 		coefs[2] = a2;
-		coefs[3] = a3;*/
+		coefs[3] = a3;
 	}
 	else if ( numactive == 8 )
 	{
