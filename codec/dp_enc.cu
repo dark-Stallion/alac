@@ -59,30 +59,30 @@ __global__ void gpu_init_coefs(int16_t * coefs, int32_t numPairs)
 		coefs[i] = 0;
 }
 
-void init_coefs( int16_t * coefs, uint32_t denshift, int32_t numPairs )
-{
-	int32_t		k;
-	int32_t		den = 1 << denshift;
-
-	coefs[0] = (AINIT * den) >> 4;
-	coefs[1] = (BINIT * den) >> 4;
-	coefs[2] = (CINIT * den) >> 4;
-
-/*	int16_t *d_coefs;
-
-	cudaMalloc(&d_coefs, numPairs * 4);
-
-	cudaMemcpy(d_coefs, coefs, numPairs * 4, cudaMemcpyHostToDevice);
-
-	gpu_init_coefs<<<1, numPairs>>>(d_coefs, numPairs);
-
-	cudaMemcpy(coefs, d_coefs, numPairs * 4, cudaMemcpyDeviceToHost);
-
-	cudaFree(d_coefs);*/
-
-	for ( k = 3; k < numPairs; k++ )
-		coefs[k]  = 0;
-}
+//void init_coefs( int16_t * coefs, uint32_t denshift, int32_t numPairs )
+//{
+//	int32_t		k;
+//	int32_t		den = 1 << denshift;
+//
+//	coefs[0] = (AINIT * den) >> 4;
+//	coefs[1] = (BINIT * den) >> 4;
+//	coefs[2] = (CINIT * den) >> 4;
+//
+///*	int16_t *d_coefs;
+//
+//	cudaMalloc(&d_coefs, numPairs * 4);
+//
+//	cudaMemcpy(d_coefs, coefs, numPairs * 4, cudaMemcpyHostToDevice);
+//
+//	gpu_init_coefs<<<1, numPairs>>>(d_coefs, numPairs);
+//
+//	cudaMemcpy(coefs, d_coefs, numPairs * 4, cudaMemcpyDeviceToHost);
+//
+//	cudaFree(d_coefs);*/
+//
+//	for ( k = 3; k < numPairs; k++ )
+//		coefs[k]  = 0;
+//}
 
 //void copy_coefs( int16_t * srcCoefs, int16_t * dstCoefs, int32_t numPairs )
 //{
@@ -482,7 +482,7 @@ void pc_block(int32_t * in, int32_t * pc1, int32_t num, int16_t * coefs, int32_t
 	{
 //pc_block_general:
 		// general case
-//		printf("\npc_block general %d %d\n", lim, num);
+		printf("\nENTERS pc_block else\n");
 		for ( j = lim; j < num; j++ )
 		{
 			LOOP_ALIGN

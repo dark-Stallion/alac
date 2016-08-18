@@ -29,9 +29,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
 #include <cuda.h>
 #include <cuda_runtime.h>
+#include "device_launch_parameters.h"
+#include <cuda_profiler_api.h>
+
 #include "ALACEncoder.h"
+#include "CudaAlacEncoder.cuh"
 
 #include "aglib.h"
 #include "dplib.h"
@@ -326,7 +331,6 @@ int32_t ALACEncoder::EncodeStereo( BitBuffer * bitstream, void * inputBuffer, ui
 	minBits	= minBits1 = minBits2 = 1ul << 31;
 	
     int32_t		bestRes = mLastMixRes[channelIndex];
-
     for ( mixRes = 0; mixRes <= maxRes; mixRes++ )
     {
         // mix the stereo inputs
@@ -400,7 +404,6 @@ int32_t ALACEncoder::EncodeStereo( BitBuffer * bitstream, void * inputBuffer, ui
 	// now it's time for the predictor coefficient search loop
 	numU = numV = kMinUV;
 	minBits1 = minBits2 = 1ul << 31;
-
 	for ( uint32_t numUV = kMinUV; numUV <= kMaxUV; numUV += 4 )
 	{
 		BitBufferInit( &workBits, mWorkBuffer, mMaxOutputBytes );		
@@ -459,12 +462,12 @@ int32_t ALACEncoder::EncodeStereo( BitBuffer * bitstream, void * inputBuffer, ui
 		//Assert( (pbFactor < 8) && (numV < 32) );
 
 		BitBufferWrite( bitstream, (mode << 4) | DENSHIFT_DEFAULT, 8 );
-		BitBufferWrite( bitstream, (pbFactor << 5) | numU, 8 );
+		BitBufferWrite(bitstream, (pbFactor << 5) | numU, 8);
 		for ( index = 0; index < numU; index++ )
 			BitBufferWrite( bitstream, coefsU[numU - 1][index], 16 );
 
 		BitBufferWrite( bitstream, (mode << 4) | DENSHIFT_DEFAULT, 8 );
-		BitBufferWrite( bitstream, (pbFactor << 5) | numV, 8 );
+		BitBufferWrite(bitstream, (pbFactor << 5) | numV, 8);
 		for ( index = 0; index < numV; index++ )
 			BitBufferWrite( bitstream, coefsV[numV - 1][index], 16 );
 
@@ -474,7 +477,6 @@ int32_t ALACEncoder::EncodeStereo( BitBuffer * bitstream, void * inputBuffer, ui
 			uint32_t		bitShift = bytesShifted * 8;
 
 			//Assert( bitShift <= 16 );
-
 			for ( index = 0; index < (numSamples * 2); index += 2 )
 			{
 				uint32_t			shiftedVal;
@@ -548,6 +550,8 @@ Exit:
 */
 int32_t ALACEncoder::EncodeStereoFast( BitBuffer * bitstream, void * inputBuffer, uint32_t stride, uint32_t channelIndex, uint32_t numSamples )
 {
+	printf("\nENTERS EncodeStereoFast\n");
+
 	BitBuffer		startBits = *bitstream;			// squirrel away current bit position in case we decide to use escape hatch
 	AGParamRec		agParams;
 	uint32_t	bits1, bits2;
@@ -640,11 +644,13 @@ int32_t ALACEncoder::EncodeStereoFast( BitBuffer * bitstream, void * inputBuffer
 
 	BitBufferWrite( bitstream, (mode << 4) | DENSHIFT_DEFAULT, 8 );
 	BitBufferWrite( bitstream, (pbFactor << 5) | numU, 8 );
+	printf("%d\n", numU);
 	for ( index = 0; index < numU; index++ )
 		BitBufferWrite( bitstream, coefsU[numU - 1][index], 16 );
 
 	BitBufferWrite( bitstream, (mode << 4) | DENSHIFT_DEFAULT, 8 );
 	BitBufferWrite( bitstream, (pbFactor << 5) | numV, 8 );
+	printf("%d\n", numV);
 	for ( index = 0; index < numV; index++ )
 		BitBufferWrite( bitstream, coefsV[numV - 1][index], 16 );
 
@@ -654,7 +660,7 @@ int32_t ALACEncoder::EncodeStereoFast( BitBuffer * bitstream, void * inputBuffer
 		uint32_t		bitShift = bytesShifted * 8;
 
 		//Assert( bitShift <= 16 );
-
+		printf("%d\n", numSamples * 2);
 		for ( index = 0; index < (numSamples * 2); index += 2 )
 		{
 			uint32_t			shiftedVal;
@@ -731,6 +737,8 @@ Exit:
 */
 int32_t ALACEncoder::EncodeStereoEscape( BitBuffer * bitstream, void * inputBuffer, uint32_t stride, uint32_t numSamples )
 {
+	printf("\nENTERS EncodeStereoEscape\n");
+
 	int16_t *		input16;
 	int32_t *		input32;
 	uint8_t			partialFrame;
@@ -750,7 +758,6 @@ int32_t ALACEncoder::EncodeStereoEscape( BitBuffer * bitstream, void * inputBuff
 	{
 		case 16:
 			input16 = (int16_t *) inputBuffer;
-			
 			for ( index = 0; index < (numSamples * stride); index += stride )
 			{
 				BitBufferWrite( bitstream, input16[index + 0], 16 );
@@ -777,7 +784,6 @@ int32_t ALACEncoder::EncodeStereoEscape( BitBuffer * bitstream, void * inputBuff
 			break;
 		case 32:
 			input32 = (int32_t *) inputBuffer;
-
 			for ( index = 0; index < (numSamples * stride); index += stride )
 			{
 				BitBufferWrite( bitstream, input32[index + 0], 32 );
@@ -795,6 +801,9 @@ int32_t ALACEncoder::EncodeStereoEscape( BitBuffer * bitstream, void * inputBuff
 */
 int32_t ALACEncoder::EncodeMono( BitBuffer * bitstream, void * inputBuffer, uint32_t stride, uint32_t channelIndex, uint32_t numSamples )
 {
+
+	printf("\nENTERS EncodeMono\n");
+
 	BitBuffer		startBits = *bitstream;			// squirrel away copy of current state in case we need to go back and do an escape packet
 	AGParamRec		agParams;
 	uint32_t	bits1;
@@ -889,7 +898,6 @@ int32_t ALACEncoder::EncodeMono( BitBuffer * bitstream, void * inputBuffer, uint
 	
 	minBits	= 1ul << 31;
 	bestU	= minU;
-
 	for ( numU = minU; numU <= maxU; numU += 4 )
 	{
 		BitBuffer		workBits;
@@ -1073,7 +1081,8 @@ int32_t ALACEncoder::Encode(AudioFormatDescription theInputFormat, AudioFormatDe
 		stereoElementTag	= 0;
 		monoElementTag		= 0;
 		lfeElementTag		= 0;
-
+		printf("\nENTERS theInputFormat.mChannelsPerFrame\n");
+		printf("\ntheInputFormat.mChannelsPerFrame %d\n", theInputFormat.mChannelsPerFrame);
 		for ( channelIndex = 0; channelIndex < theInputFormat.mChannelsPerFrame; )
 		{
 			tag = (sChannelMaps[theInputFormat.mChannelsPerFrame - 1] & (0x7ul << (channelIndex * 3))) >> (channelIndex * 3);
@@ -1250,7 +1259,15 @@ void ALACEncoder::GetMagicCookie(void * outCookie, uint32_t * ioSize)
 	- initialize the encoder component with the current config
 */
 
+__global__ void init_coefs(int16_t * mCoefsU, int16_t * mCoefsV, int g){
+	int index = threadIdx.x;
 
+	if (index > 2)
+	{
+		mCoefsU[index + g] = 0;
+		mCoefsV[index + g] = 0;
+	}
+}
 __global__ void kALACSearch(int16_t * mCoefsU, int16_t * mCoefsV, int32_t kALACMaxCoefs)
 {
 	int x = blockIdx.x;
@@ -1268,11 +1285,15 @@ __global__ void kALACSearch(int16_t * mCoefsU, int16_t * mCoefsV, int32_t kALACM
 	mCoefsV[index + 1] = (BINIT * den) >> 4;
 	mCoefsV[index + 2] = (CINIT * den) >> 4;
 
-	for (k = 3; k < kALACMaxCoefs; k++)
+	init_coefs<<<1, kALACMaxCoefs>>>(mCoefsU, mCoefsV, index);
+
+	cudaDeviceSynchronize();
+	
+	/*for (k = 3; k < kALACMaxCoefs; k++)
 	{
 		mCoefsU[index + k] = 0;
 		mCoefsV[index + k] = 0;
-	}
+	}*/
 }
 
 int32_t ALACEncoder::InitializeEncoder(AudioFormatDescription theOutputFormat)
@@ -1331,6 +1352,10 @@ int32_t ALACEncoder::InitializeEncoder(AudioFormatDescription theOutputFormat)
 	status = ALAC_noErr;
 
 
+	
+
+	//call_kALACSearch(p1, p2, kALACMaxCoefs, mNumChannels, kALACMaxSearches);
+
 	// initialize coefs arrays once b/c retaining state across blocks actually improves the encode ratio
 	//printf("size of mCoefsU %d ", sizeof(mCoefsV[0][1]));
 	/*for ( int32_t channel = 0; channel < (int32_t)mNumChannels; channel++ )
@@ -1342,6 +1367,10 @@ int32_t ALACEncoder::InitializeEncoder(AudioFormatDescription theOutputFormat)
 		}
 	}*/
 	
+//	printf("mNumChannels %d & kALACMaxSearches %d \n", mNumChannels, kALACMaxSearches);
+
+	
+
 	void *p1 = mCoefsU;
 	void *p2 = mCoefsV;
 
@@ -1349,18 +1378,37 @@ int32_t ALACEncoder::InitializeEncoder(AudioFormatDescription theOutputFormat)
 
 	cudaMalloc(&d_mCoefsU, sizeof(int16_t) * 8 * 16 * 16);
 	cudaMalloc(&d_mCoefsV, sizeof(int16_t) * 8 * 16 * 16);
+	
+
+	/*cudaProfilerStart();*/
 
 	cudaMemcpy(d_mCoefsU, p1, sizeof(int16_t) * 8 * 16 * 16, cudaMemcpyHostToDevice);
 	cudaMemcpy(d_mCoefsV, p2, sizeof(int16_t) * 8 * 16 * 16, cudaMemcpyHostToDevice);
 
+	//float elapsedTime;
+	//cudaEvent_t start, stop;
+	//cudaEventCreate(&start);
+	//cudaEventCreate(&stop);
+	//cudaEventRecord(start, 0);
+
 	kALACSearch<<< mNumChannels, kALACMaxSearches>>>(d_mCoefsU, d_mCoefsV, kALACMaxCoefs);
+
+	//cudaEventRecord(stop, 0);
+	//cudaEventSynchronize(stop);
+	//cudaEventElapsedTime(&elapsedTime, start, stop);
+	//cudaEventDestroy(start);
+	//cudaEventDestroy(stop);
+	//printf("GPU Time elapsed: %f ms\n", elapsedTime);
 
 	cudaMemcpy(p1, d_mCoefsU, sizeof(int16_t) * 8 * 16 * 16, cudaMemcpyDeviceToHost);
 	cudaMemcpy(p2, d_mCoefsV, sizeof(int16_t) * 8 * 16 * 16, cudaMemcpyDeviceToHost);
 
+	/*cudaProfilerStop();*/
+
 	cudaFree(d_mCoefsU);
 	cudaFree(d_mCoefsV);
 	
+
 	//printf("size of mCoefsU %d ", sizeof(mCoefsV));
 
 Exit:
