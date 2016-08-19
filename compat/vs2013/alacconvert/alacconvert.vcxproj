@@ -65,6 +65,7 @@
     </Link>
     <CudaCompile>
       <AdditionalDeps>cudart.lib;</AdditionalDeps>
+      <CodeGeneration>compute_50,sm_50</CodeGeneration>
     </CudaCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
