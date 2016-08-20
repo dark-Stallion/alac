@@ -36,7 +36,6 @@ Copyright:	(c) 2004-2011 Apple, Inc.
 #include "device_launch_parameters.h"
 #include <cuda_profiler_api.h>
 
-#include "math.h"
 #include "matrixlib.h"
 #include "ALACAudioTypes.h"
 
@@ -141,21 +140,44 @@ void mix16(int16_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numS
 
 }
 
-
-__global__ void gpu_mix20_2(int16_t * ip, uint32_t stride, int32_t * u, int32_t * v, int32_t numSamples)
+__global__ void gpu_mix20_1(uint8_t * ip, uint32_t stride, int32_t * u, int32_t * v, int32_t numSamples, int32_t mixres, int32_t m2, int32_t mixbits)
 {
 	int z = threadIdx.x + blockIdx.x * blockDim.x;
 	if (z < numSamples)
 	{
-		int32_t	l, r;
+		int32_t		l, r;
 
+		ip += 3 * z;
+		ip += (stride - 1) * 3 * z;
+		l = (int32_t)(((uint32_t)ip[HBYTE] << 16) | ((uint32_t)ip[MBYTE] << 8) | (uint32_t)ip[LBYTE]);
+		l = (l << 8) >> 12;
+
+		ip += 3;
+		r = (int32_t)(((uint32_t)ip[HBYTE] << 16) | ((uint32_t)ip[MBYTE] << 8) | (uint32_t)ip[LBYTE]);
+		r = (r << 8) >> 12;
+
+		u[z] = (mixres * l + m2 * r) >> mixbits;
+		v[z] = l - r;
+	}
+}
+
+
+__global__ void gpu_mix20_2(uint8_t * ip, uint32_t stride, int32_t * u, int32_t * v, int32_t numSamples)
+{
+	int z = threadIdx.x + blockIdx.x * blockDim.x;
+	if (z < numSamples)
+	{
+		int32_t		l, r;
+
+
+		ip += 3 * z;
+		ip += (stride - 1) * 3 * z;
 		l = (int32_t)(((uint32_t)ip[HBYTE] << 16) | ((uint32_t)ip[MBYTE] << 8) | (uint32_t)ip[LBYTE]);
 		u[z] = (l << 8) >> 12;
-		ip += 3 * z;
 
+		ip += 3;
 		r = (int32_t)(((uint32_t)ip[HBYTE] << 16) | ((uint32_t)ip[MBYTE] << 8) | (uint32_t)ip[LBYTE]);
 		v[z] = (r << 8) >> 12;
-		ip += (stride - 1) * 3 * z;
 	}
 }
 
@@ -168,63 +190,45 @@ void mix20(uint8_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numS
 	uint8_t *	ip = in;
 	int32_t			j;
 
+	printf("Enters mix20");
+
+	int32_t *d_u, *d_v;
+	uint8_t *d_ip;
+
+	cudaMalloc(&d_u, numSamples * sizeof(int32_t));
+	cudaMalloc(&d_v, numSamples * sizeof(int32_t));
+	cudaMalloc(&d_ip, stride * 3 * numSamples * sizeof(uint8_t));
+
+
+	cudaMemcpy(d_u, u, numSamples * sizeof(int32_t), cudaMemcpyHostToDevice);
+	cudaMemcpy(d_v, v, numSamples * sizeof(int32_t), cudaMemcpyHostToDevice);
+	cudaMemcpy(d_ip, ip, stride * 3 * numSamples * sizeof(uint8_t), cudaMemcpyHostToDevice);
 
 	if (mixres != 0)
 	{
 		/* matrixed stereo */
 		int32_t		mod = 1 << mixbits;
 		int32_t		m2 = mod - mixres;
-		for (j = 0; j < numSamples; j++)
-		{
-			l = (int32_t)(((uint32_t)ip[HBYTE] << 16) | ((uint32_t)ip[MBYTE] << 8) | (uint32_t)ip[LBYTE]);
-			l = (l << 8) >> 12;
-			ip += 3;
 
-			r = (int32_t)(((uint32_t)ip[HBYTE] << 16) | ((uint32_t)ip[MBYTE] << 8) | (uint32_t)ip[LBYTE]);
-			r = (r << 8) >> 12;
-			ip += (stride - 1) * 3;
+		gpu_mix20_1 << < (numSamples + SIZE - 1) / SIZE, SIZE >> >(d_ip, stride, d_u, d_v, numSamples, mixres, m2, mixbits);
 
-			u[j] = (mixres * l + m2 * r) >> mixbits;
-			v[j] = l - r;
-		}
 	}
 	else
 	{
 
-		/*int32_t *d_u, *d_v;
-		int16_t *d_ip;
-
-		cudaMalloc(&d_u, numSamples * sizeof(int32_t));
-		cudaMalloc(&d_v, numSamples * sizeof(int32_t));
-		cudaMalloc(&d_ip, stride * 3 * numSamples * sizeof(int16_t));
-
-		cudaMemcpy(d_u, u, numSamples * sizeof(int32_t), cudaMemcpyHostToDevice);
-		cudaMemcpy(d_v, v, numSamples * sizeof(int32_t), cudaMemcpyHostToDevice);
-		cudaMemcpy(d_ip, ip, stride * 3 * numSamples * sizeof(int16_t), cudaMemcpyHostToDevice);
-
 		gpu_mix20_2 << < (numSamples + SIZE - 1) / SIZE, SIZE >> >(d_ip, stride, d_u, d_v, numSamples);
 
-
-		cudaMemcpy(u, d_u, numSamples * sizeof(int32_t), cudaMemcpyDeviceToHost);
-		cudaMemcpy(v, d_v, numSamples * sizeof(int32_t), cudaMemcpyDeviceToHost);
-		cudaMemcpy(ip, d_ip, stride * 3 * numSamples * sizeof(int16_t), cudaMemcpyDeviceToHost);
-
-		cudaFree(d_u);
-		cudaFree(d_v);
-		cudaFree(d_ip);*/
-
 		/* Conventional separated stereo. */
-		for (j = 0; j < numSamples; j++)
-		{
-			l = (int32_t)(((uint32_t)ip[HBYTE] << 16) | ((uint32_t)ip[MBYTE] << 8) | (uint32_t)ip[LBYTE]);
-			u[j] = (l << 8) >> 12;
-			ip += 3;
-
-			r = (int32_t)(((uint32_t)ip[HBYTE] << 16) | ((uint32_t)ip[MBYTE] << 8) | (uint32_t)ip[LBYTE]);
-			v[j] = (r << 8) >> 12;
-			ip += (stride - 1) * 3;
-		}
 	}
+
+	cudaMemcpy(u, d_u, numSamples * sizeof(int32_t), cudaMemcpyDeviceToHost);
+	cudaMemcpy(v, d_v, numSamples * sizeof(int32_t), cudaMemcpyDeviceToHost);
+	cudaMemcpy(ip, d_ip, stride * 3 * numSamples * sizeof(uint8_t), cudaMemcpyDeviceToHost);
+
+	cudaFree(d_u);
+	cudaFree(d_v);
+	cudaFree(d_ip);
+
 }
 
 // 24-bit routines

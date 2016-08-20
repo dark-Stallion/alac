@@ -36,7 +36,7 @@
 #include <cuda_runtime.h>
 #include "device_launch_parameters.h"
 
-#define SIZE 512
+#define SIZE 1024
 
 #if __GNUC__
 #define ALWAYS_INLINE		__attribute__((always_inline))
@@ -100,78 +100,97 @@ static inline int32_t ALWAYS_INLINE sign_of_int( int32_t i )		// <------- use in
     return negishift | (i >> 31);
 }
 
-/*__global__ void gpu_pc_block(int32_t *pin, int32_t *in, int32_t *pc1, int32_t lim, int32_t num, int32_t top, int32_t b0, int32_t b1, int32_t b2,
-	int32_t b3, int32_t sum1, int32_t denhalf, uint32_t denshift, int16_t *a0, int16_t *a1, int16_t *a2, int16_t *a3, int32_t del, int32_t sg, int32_t del0, uint32_t chanshift, int32_t sgn)
+__global__ void gpu_pc_block(int32_t *pin, int32_t *in, int32_t *pc1, int32_t lim, int32_t num, int32_t sum1, int32_t denhalf,
+	uint32_t denshift, int16_t *a0, int16_t *a1, int16_t *a2, int16_t *a3, int32_t del, int32_t sg, int32_t del0, uint32_t chanshift, int32_t sgn, int g, int limit)
 {
 
-	int z = threadIdx.x + blockIdx.x * blockDim.x; 
+	int z = threadIdx.x + g * blockDim.x; 
 	if (z >= lim && z < num)
 	{
-		top = in[z - lim];
+		__shared__ int s1[1024];
+		__shared__ int s2[1024];
+		__shared__ int s3[1024];
+		__shared__ int s4[1024];
+		__shared__ int s5[1024];
+
+		s5[threadIdx.x] = in[z - lim];
 		pin = in + z - 1;
 
-		b0 = top - pin[0];
-		b1 = top - pin[-1];
-		b2 = top - pin[-2];
-		b3 = top - pin[-3];
+		s1[threadIdx.x] = s5[threadIdx.x] - pin[0];
+		s2[threadIdx.x] = s5[threadIdx.x] - pin[-1];
+		s3[threadIdx.x] = s5[threadIdx.x] - pin[-2];
+		s4[threadIdx.x] = s5[threadIdx.x] - pin[-3];
 
-		sum1 = (denhalf - *a0 * b0 - *a1 * b1 - *a2 * b2 - *a3 * b3) >> denshift;
+		__syncthreads();
 
-		del = in[z] - top - sum1;
-		del = (del << chanshift) >> chanshift;
-		pc1[z] = del;
-		del0 = del;
+		if (threadIdx.x == lim){
+			int n;
+			if (g != 0)
+				lim = 0;
+			if (limit < SIZE)
+				n = limit;
+			else
+				n = SIZE;
 
-		sg = (del<0)?-1:(del>0)?1:0;
-		if (sg > 0)
-		{
-			sgn = (b3<0) ? -1 : (b3>0) ? 1 : 0;
-			atomicSub(a3, sgn);
-			del0 -= (4 - 3) * ((sgn * b3) >> denshift);
-			if (del0 <= 0)
-				return;
+			for (int j = lim; j < n; j++){
+				int index = j + g * blockDim.x;
+				sum1 = (denhalf - *a0 * s1[j] - *a1 * s2[j] - *a2 * s3[j] - *a3 * s4[j]) >> denshift;
+				del = in[index] - s5[j] - sum1;
+				del = (del << chanshift) >> chanshift;
+				pc1[index] = del;
+				del0 = del;
+				sg = (del < 0) ? -1 : (del>0) ? 1 : 0;
+				if (sg > 0)
+				{
+					sgn = (s4[j] < 0) ? -1 : (s4[j]>0) ? 1 : 0;
+					*a3 -= sgn;
+					del0 -= (4 - 3) * ((sgn * s4[j]) >> denshift);
+					if (del0 <= 0)
+						continue;
 
-			sgn = (b2<0) ? -1 : (b2>0) ? 1 : 0;
-			atomicSub(a2, sgn);
-			del0 -= (4 - 2) * ((sgn * b2) >> denshift);
-			if (del0 <= 0)
-				return;
+					sgn = (s3[j] < 0) ? -1 : (s3[j]>0) ? 1 : 0;
+					*a2 -= sgn;
+					del0 -= (4 - 2) * ((sgn * s3[j]) >> denshift);
+					if (del0 <= 0)
+						continue;
 
-			sgn = (b1<0) ? -1 : (b1>0) ? 1 : 0;
-			atomicSub(a3, sgn);
-			del0 -= (4 - 1) * ((sgn * b1) >> denshift);
-			if (del0 <= 0)
-				return;
+					sgn = (s2[j] < 0) ? -1 : (s2[j]>0) ? 1 : 0;
+					*a1 -= sgn;
+					del0 -= (4 - 1) * ((sgn * s2[j]) >> denshift);
+					if (del0 <= 0)
+						continue;
+					
+					sgn = (s1[j] < 0) ? -1 : (s1[j]>0) ? 1 : 0;
+					*a0 -= sgn;
+				}
+				else if (sg < 0)
+				{
+					// note: to avoid unnecessary negations, we flip the value of "sgn"
+					sgn = -((s4[j] < 0) ? -1 : (s4[j]>0) ? 1 : 0);
+					*a3 -= sgn;
+					del0 -= (4 - 3) * ((sgn * s4[j]) >> denshift);
+					if (del0 >= 0)
+						continue;
 
-			sgn = (b0<0) ? -1 : (b0>0) ? 1 : 0;
-			atomicSub(a0, sgn);
-		}
-		else if (sg < 0)
-		{
-			// note: to avoid unnecessary negations, we flip the value of "sgn"
-			sgn = -((b3<0) ? -1 : (b3>0) ? 1 : 0);
-			atomicSub(a3, sgn);
-			del0 -= (4 - 3) * ((sgn * b3) >> denshift);
-			if (del0 >= 0)
-				return;
+					sgn = -((s3[j] < 0) ? -1 : (s3[j]>0) ? 1 : 0);
+					*a2 -= sgn;
+					del0 -= (4 - 2) * ((sgn * s3[j]) >> denshift);
+					if (del0 >= 0)
+						continue;
 
-			sgn = -((b2<0) ? -1 : (b2>0) ? 1 : 0);
-			atomicSub(a2, sgn);
-			del0 -= (4 - 2) * ((sgn * b2) >> denshift);
-			if (del0 >= 0)
-				return;
+					sgn = -((s2[j] < 0) ? -1 : (s2[j]>0) ? 1 : 0);
+					*a1 -= sgn;
+					del0 -= (4 - 1) * ((sgn * s2[j]) >> denshift);
+					if (del0 >= 0)
+						continue;
 
-			sgn = -((b1<0) ? -1 : (b1>0) ? 1 : 0);
-			atomicSub(a1, sgn);
-			del0 -= (4 - 1) * ((sgn * b1) >> denshift);
-			if (del0 >= 0)
-				return;
-
-			sgn = (b0<0) ? -1 : (b0>0) ? 1 : 0;
-			atomicAdd(a0, sgn);
+					sgn = (s1[j] < 0) ? -1 : (s1[j]>0) ? 1 : 0;
+					*a0 += sgn;
+				}
+			}
 		}
 	}
-}*/
+}
 
 void pc_block(int32_t * in, int32_t * pc1, int32_t num, int16_t * coefs, int32_t numactive, uint32_t chanbits, uint32_t denshift)
 {
@@ -222,111 +241,47 @@ void pc_block(int32_t * in, int32_t * pc1, int32_t num, int16_t * coefs, int32_t
 		a2 = coefs[2];
 		a3 = coefs[3];
 ////		printf("\npc_block (numactive == 4) %d %d\n", lim, num);
-//
-//
-//		int32_t *d_pin, *d_in, *d_pc1;
-//		int16_t	*d_a0, *d_a1, *d_a2, *d_a3;
-//
-//		cudaMalloc(&d_pin, sizeof(int32_t));
-//		cudaMalloc(&d_in, num * sizeof(int32_t));
-//		cudaMalloc(&d_pc1, num * sizeof(int32_t));
-//
-//		cudaMalloc((void**)&d_a0, sizeof(int16_t));
-//		cudaMalloc((void**)&d_a1, sizeof(int16_t));
-//		cudaMalloc((void**)&d_a2, sizeof(int16_t));
-//		cudaMalloc((void**)&d_a3, sizeof(int16_t));
-//
-//		cudaMemcpy(d_in, in, num * sizeof(int32_t), cudaMemcpyHostToDevice);
-//		cudaMemcpy(d_pc1, pc1, num * sizeof(int32_t), cudaMemcpyHostToDevice);
-//
-//		cudaMemcpy(d_a0, &a0, sizeof(int16_t), cudaMemcpyHostToDevice);
-//		cudaMemcpy(d_a1, &a1, sizeof(int16_t), cudaMemcpyHostToDevice);
-//		cudaMemcpy(d_a2, &a2, sizeof(int16_t), cudaMemcpyHostToDevice);
-//		cudaMemcpy(d_a3, &a3, sizeof(int16_t), cudaMemcpyHostToDevice);
-//
-//		gpu_pc_block<<<(num + SIZE - 1) / SIZE, SIZE >>>(d_pin, d_in, d_pc1, lim, num, top, b0, b1, b2, b3, sum1, denhalf, denshift,
-//			d_a0, d_a1, d_a2, d_a3, del, sg, del0, chanshift, sgn);
 
-		for ( j = lim; j < num; j++ )			// <---------------------- make parallel
-		{
-//			LOOP_ALIGN
+		int32_t *d_pin, *d_in, *d_pc1;
+		int16_t	*d_a0, *d_a1, *d_a2, *d_a3;
 
-			top = in[j - lim];
-			pin = in + j - 1;
+		cudaMalloc(&d_in, num * sizeof(int32_t));
+		cudaMalloc(&d_pc1, num * sizeof(int32_t));
 
-			b0 = top - pin[0];
-			b1 = top - pin[-1];
-			b2 = top - pin[-2];
-			b3 = top - pin[-3];
+		cudaMalloc((void**)&d_a0, sizeof(int16_t));
+		cudaMalloc((void**)&d_a1, sizeof(int16_t));
+		cudaMalloc((void**)&d_a2, sizeof(int16_t));
+		cudaMalloc((void**)&d_a3, sizeof(int16_t));
 
-			sum1 = (denhalf - a0 * b0 - a1 * b1 - a2 * b2 - a3 * b3) >> denshift;
+		cudaMemcpy(d_in, in, num * sizeof(int32_t), cudaMemcpyHostToDevice);
+		cudaMemcpy(d_pc1, pc1, num * sizeof(int32_t), cudaMemcpyHostToDevice);
 
-			del = in[j] - top - sum1;
-			del = (del << chanshift) >> chanshift;
-			pc1[j] = del;	     
-			del0 = del;
-
-			sg = sign_of_int(del);
-			if ( sg > 0 )
-			{
-				sgn = sign_of_int( b3 );
-				a3 -= sgn;
-				del0 -= (4 - 3) * ((sgn * b3) >> denshift);
-				if ( del0 <= 0 )
-					continue;
-				
-				sgn = sign_of_int( b2 );
-				a2 -= sgn;
-				del0 -= (4 - 2) * ((sgn * b2) >> denshift);
-				if ( del0 <= 0 )
-					continue;
-				
-				sgn = sign_of_int( b1 );
-				a1 -= sgn;
-				del0 -= (4 - 1) * ((sgn * b1) >> denshift);
-				if ( del0 <= 0 )
-					continue;
-
-				a0 -= sign_of_int( b0 );
-			}
-			else if ( sg < 0 )
-			{
-				// note: to avoid unnecessary negations, we flip the value of "sgn"
-				sgn = -sign_of_int( b3 );
-				a3 -= sgn;
-				del0 -= (4 - 3) * ((sgn * b3) >> denshift);
-				if ( del0 >= 0 )
-					continue;
-				
-				sgn = -sign_of_int( b2 );
-				a2 -= sgn;
-				del0 -= (4 - 2) * ((sgn * b2) >> denshift);
-				if ( del0 >= 0 )
-					continue;
-				
-				sgn = -sign_of_int( b1 );
-				a1 -= sgn;
-				del0 -= (4 - 1) * ((sgn * b1) >> denshift);
-				if ( del0 >= 0 )
-					continue;
-
-				a0 += sign_of_int( b0 );
-			}
+		cudaMemcpy(d_a0, &a0, sizeof(int16_t), cudaMemcpyHostToDevice);
+		cudaMemcpy(d_a1, &a1, sizeof(int16_t), cudaMemcpyHostToDevice);
+		cudaMemcpy(d_a2, &a2, sizeof(int16_t), cudaMemcpyHostToDevice);
+		cudaMemcpy(d_a3, &a3, sizeof(int16_t), cudaMemcpyHostToDevice);
+		
+		int n = num;
+		for (int i = 0; i < (num + SIZE - 1) / SIZE; i++){
+			gpu_pc_block << <1, SIZE >> >(d_pin, d_in, d_pc1, lim, num, sum1, denhalf, denshift, d_a0, d_a1, d_a2, d_a3, del, sg, del0, chanshift, sgn, i, n);
+			n -= 1024;
 		}
 
-		/*cudaMemcpy(&a0, d_a0, sizeof(int16_t), cudaMemcpyDeviceToHost);
+		cudaMemcpy(&a0, d_a0, sizeof(int16_t), cudaMemcpyDeviceToHost);
 		cudaMemcpy(&a1, d_a1, sizeof(int16_t), cudaMemcpyDeviceToHost);
 		cudaMemcpy(&a2, d_a2, sizeof(int16_t), cudaMemcpyDeviceToHost);
 		cudaMemcpy(&a3, d_a3, sizeof(int16_t), cudaMemcpyDeviceToHost);
 
-		cudaFree(d_pin);
+		cudaMemcpy(in, d_in, num * sizeof(int32_t), cudaMemcpyDeviceToHost);
+		cudaMemcpy(pc1, d_pc1, num * sizeof(int32_t), cudaMemcpyDeviceToHost);
+
 		cudaFree(d_in);
 		cudaFree(d_pc1);
 
 		cudaFree(d_a0);
 		cudaFree(d_a1);
 		cudaFree(d_a2);
-		cudaFree(d_a3);*/
+		cudaFree(d_a3);
 
 		coefs[0] = a0;
 		coefs[1] = a1;
