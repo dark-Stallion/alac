@@ -46,7 +46,7 @@ extern "C" {
 
 // prototypes
 
-void init_coefs( int16_t * coefs, uint32_t denshift, int32_t numPairs );
+void init_coefs(int16_t * mCoefsU, int16_t * mCoefsV, int32_t kALACMaxCoefs, int32_t mNumChannels, int32_t kALACMaxSearches);
 void copy_coefs( int16_t * srcCoefs, int16_t * dstCoefs, int32_t numPairs );
 
 // NOTE: these routines read at least "numactive" samples so the i/o buffers must be at least that big

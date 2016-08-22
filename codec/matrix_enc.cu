@@ -162,6 +162,9 @@ __global__ void gpu_mix20_2(uint8_t * ip, uint32_t stride, int32_t * u, int32_t 
 
 void mix20(uint8_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numSamples, int32_t mixbits, int32_t mixres)
 {
+	printf("\nENTERS mix20\n");
+	return;
+
 	/*int32_t		l, r;
 	uint8_t *	ip = in;
 	int32_t			j;
@@ -449,6 +452,7 @@ void mix32(int32_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numS
 void copy20ToPredictor(uint8_t * in, uint32_t stride, int32_t * out, int32_t numSamples)
 {
 	printf("\nENTERS copy20ToPredictor\n");
+	return;
 	uint8_t *	ip = in;
 	int32_t			j;
 	for (j = 0; j < numSamples; j++)
@@ -465,6 +469,7 @@ void copy20ToPredictor(uint8_t * in, uint32_t stride, int32_t * out, int32_t num
 void copy24ToPredictor(uint8_t * in, uint32_t stride, int32_t * out, int32_t numSamples)
 {
 	printf("\nENTERS copy24ToPredictor\n");
+	return;
 	uint8_t *	ip = in;
 	int32_t			j;
 	for (j = 0; j < numSamples; j++)
