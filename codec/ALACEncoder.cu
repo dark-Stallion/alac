@@ -331,28 +331,66 @@ int32_t ALACEncoder::EncodeStereo( BitBuffer * bitstream, void * inputBuffer, ui
 	minBits	= minBits1 = minBits2 = 1ul << 31;
 	
     int32_t		bestRes = mLastMixRes[channelIndex];
+
+
+	int32_t *d_u, *d_v;
+	void *d_ip;
+	int n = numSamples / dilate;
+
+	cudaMalloc(&d_u, n * sizeof(int32_t));
+	cudaMalloc(&d_v, n * sizeof(int32_t));
+	cudaMalloc(&d_ip, stride * n * sizeof(int32_t));
+	cudaMemcpy(d_ip, inputBuffer, stride * n * sizeof(int32_t), cudaMemcpyHostToDevice);
+
     for ( mixRes = 0; mixRes <= maxRes; mixRes++ )
     {
         // mix the stereo inputs
+
+		cudaMemcpy(d_u, mMixBufferU, n * sizeof(int32_t), cudaMemcpyHostToDevice);
+		cudaMemcpy(d_v, mMixBufferV, n * sizeof(int32_t), cudaMemcpyHostToDevice);
+
         switch ( mBitDepth )
         {
-            case 16:
-                mix16( (int16_t *) inputBuffer, stride, mMixBufferU, mMixBufferV, numSamples/dilate, mixBits, mixRes );
-                break;
-            case 20:
-                mix20( (uint8_t *) inputBuffer, stride, mMixBufferU, mMixBufferV, numSamples/dilate, mixBits, mixRes );
-                break;
-            case 24:
-                // includes extraction of shifted-off bytes
-                mix24( (uint8_t *) inputBuffer, stride, mMixBufferU, mMixBufferV, numSamples/dilate,
-                        mixBits, mixRes, mShiftBufferUV, bytesShifted );
-                break;
-            case 32:
-                // includes extraction of shifted-off bytes
-                mix32( (int32_t *) inputBuffer, stride, mMixBufferU, mMixBufferV, numSamples/dilate,
-                        mixBits, mixRes, mShiftBufferUV, bytesShifted );
-                break;
+            case 16:{
+				mix16((int16_t *)d_ip, stride, d_u, d_v, numSamples / dilate, mixBits, mixRes);
+				break;
+			}
+			case 20:{
+				uint8_t *d_ip;
+				cudaMalloc(&d_ip, stride * 3 * n * sizeof(uint8_t));
+				cudaMemcpy(d_ip, (uint8_t *)inputBuffer, stride * 3 * n * sizeof(uint8_t), cudaMemcpyHostToDevice);
+				mix20(d_ip, stride, d_u, d_v, numSamples / dilate, mixBits, mixRes);
+				cudaMemcpy((uint8_t *)inputBuffer, d_ip, stride * 3 * n * sizeof(uint8_t), cudaMemcpyDeviceToHost);
+				cudaFree(d_ip);
+				break;
+			}
+			case 24:{
+				// includes extraction of shifted-off bytes
+				
+				uint16_t *d_shiftUV;
+				cudaMalloc(&d_shiftUV, 2 * n * sizeof(uint16_t));
+				cudaMemcpy(d_shiftUV, mShiftBufferUV, 2 * n * sizeof(uint16_t), cudaMemcpyHostToDevice);
+				mix24((uint8_t *)d_ip, stride, d_u, d_v, numSamples / dilate,
+					mixBits, mixRes, d_shiftUV, bytesShifted);
+				cudaMemcpy(mShiftBufferUV, d_shiftUV, 2 * n * sizeof(uint16_t), cudaMemcpyDeviceToHost);
+				cudaFree(d_shiftUV);
+				break;
+			}
+			case 32:{
+				// includes extraction of shifted-off bytes
+				uint16_t *d_shiftUV;
+				cudaMalloc(&d_shiftUV, 2 * n * sizeof(uint16_t));
+				cudaMemcpy(d_shiftUV, mShiftBufferUV, 2 * n * sizeof(uint16_t), cudaMemcpyHostToDevice);
+				mix32((int32_t *)d_ip, stride, d_u, d_v, numSamples / dilate,
+					mixBits, mixRes, d_shiftUV, bytesShifted);
+				cudaMemcpy(mShiftBufferUV, d_shiftUV, 2 * n * sizeof(uint16_t), cudaMemcpyDeviceToHost);
+				cudaFree(d_shiftUV);
+				break;
+			}
         }
+
+		cudaMemcpy(mMixBufferU, d_u, n * sizeof(int32_t), cudaMemcpyDeviceToHost);
+		cudaMemcpy(mMixBufferV, d_v, n * sizeof(int32_t), cudaMemcpyDeviceToHost);
 
         BitBufferInit( &workBits, mWorkBuffer, mMaxOutputBytes );
         
@@ -376,30 +414,82 @@ int32_t ALACEncoder::EncodeStereo( BitBuffer * bitstream, void * inputBuffer, ui
             bestRes = mixRes;
         }
     }
-    
+
+
     mLastMixRes[channelIndex] = (int16_t)bestRes;
+
+
+	cudaMemcpy(inputBuffer, d_ip, stride * n * sizeof(int32_t), cudaMemcpyDeviceToHost);
+
+	cudaFree(d_ip);
+	cudaFree(d_u);
+	cudaFree(d_v);
+
+	cudaMalloc(&d_u, numSamples * sizeof(int32_t));
+	cudaMalloc(&d_v, numSamples * sizeof(int32_t));
+
+	cudaMemcpy(d_u, mMixBufferU, numSamples * sizeof(int32_t), cudaMemcpyHostToDevice);
+	cudaMemcpy(d_v, mMixBufferV, numSamples * sizeof(int32_t), cudaMemcpyHostToDevice);
 
 	// mix the stereo inputs with the current best mixRes
 	mixRes = mLastMixRes[channelIndex];
 	switch ( mBitDepth )
 	{
-		case 16:
-			mix16( (int16_t *) inputBuffer, stride, mMixBufferU, mMixBufferV, numSamples, mixBits, mixRes );
+		case 16:{
+			int16_t *d_ip;
+			cudaMalloc(&d_ip, stride * numSamples * sizeof(int16_t));
+			cudaMemcpy(d_ip, (int16_t *)inputBuffer, stride * numSamples * sizeof(int16_t), cudaMemcpyHostToDevice);
+			mix16(d_ip, stride, d_u, d_v, numSamples, mixBits, mixRes);
+			cudaMemcpy((int16_t *)inputBuffer, d_ip, stride * numSamples * sizeof(int16_t), cudaMemcpyDeviceToHost);
+			cudaFree(d_ip);
 			break;
-		case 20:
-			mix20( (uint8_t *) inputBuffer, stride, mMixBufferU, mMixBufferV, numSamples, mixBits, mixRes );
+		}
+		case 20:{
+			uint8_t *d_ip;
+			cudaMalloc(&d_ip, stride * 3 * numSamples * sizeof(uint8_t));
+			cudaMemcpy(d_ip, (uint8_t *)inputBuffer, stride * 3 * numSamples * sizeof(uint8_t), cudaMemcpyHostToDevice);
+			mix20(d_ip, stride, d_u, d_v, numSamples, mixBits, mixRes);
+			cudaMemcpy((uint8_t *)inputBuffer, d_ip, stride * 3 * numSamples * sizeof(uint8_t), cudaMemcpyDeviceToHost);
+			cudaFree(d_ip);
 			break;
-		case 24:
+		}
+		case 24:{
 			// also extracts the shifted off bytes into the shift buffers
-			mix24( (uint8_t *) inputBuffer, stride, mMixBufferU, mMixBufferV, numSamples,
-					mixBits, mixRes, mShiftBufferUV, bytesShifted );
+			uint8_t *d_ip;
+			uint16_t *d_shiftUV;
+			cudaMalloc(&d_ip, stride * 3 * numSamples * sizeof(uint8_t));
+			cudaMalloc(&d_shiftUV, 2 * numSamples * sizeof(uint16_t));
+			cudaMemcpy(d_ip, (uint8_t *)inputBuffer, stride * 3 * numSamples * sizeof(uint8_t), cudaMemcpyHostToDevice);
+			cudaMemcpy(d_shiftUV, mShiftBufferUV, 2 * numSamples * sizeof(uint16_t), cudaMemcpyHostToDevice);
+			mix24(d_ip, stride, d_u, d_v, numSamples, mixBits, mixRes, d_shiftUV, bytesShifted);
+			cudaMemcpy(inputBuffer, (void *)d_ip, stride * 3 * numSamples * sizeof(uint8_t), cudaMemcpyDeviceToHost);
+			cudaMemcpy(mShiftBufferUV, d_shiftUV, 2 * numSamples * sizeof(uint16_t), cudaMemcpyDeviceToHost);
+			cudaFree(d_ip);
+			cudaFree(d_shiftUV);
 			break;
-		case 32:
+		}
+		case 32:{
 			// also extracts the shifted off bytes into the shift buffers
-			mix32( (int32_t *) inputBuffer, stride, mMixBufferU, mMixBufferV, numSamples,
-					mixBits, mixRes, mShiftBufferUV, bytesShifted );
+			int32_t *d_ip;
+			uint16_t *d_shiftUV;
+			cudaMalloc(&d_ip, stride * numSamples * sizeof(int32_t));
+			cudaMalloc(&d_shiftUV, 2 * numSamples * sizeof(uint16_t));
+			cudaMemcpy(d_ip, (int32_t *)inputBuffer, stride * numSamples * sizeof(int32_t), cudaMemcpyHostToDevice);
+			cudaMemcpy(d_shiftUV, mShiftBufferUV, 2 * numSamples * sizeof(uint16_t), cudaMemcpyHostToDevice);
+			mix32(d_ip, stride, d_u, d_v, numSamples, mixBits, mixRes, d_shiftUV, bytesShifted);
+			cudaMemcpy(inputBuffer, (void *)d_ip, stride * numSamples * sizeof(int32_t), cudaMemcpyDeviceToHost);
+			cudaMemcpy(mShiftBufferUV, d_shiftUV, 2 * numSamples * sizeof(uint16_t), cudaMemcpyDeviceToHost);
+			cudaFree(d_ip);
+			cudaFree(d_shiftUV);
 			break;
+		}
 	}
+
+	cudaMemcpy(mMixBufferU, d_u, numSamples * sizeof(int32_t), cudaMemcpyDeviceToHost);
+	cudaMemcpy(mMixBufferV, d_v, numSamples * sizeof(int32_t), cudaMemcpyDeviceToHost);
+
+	cudaFree(d_u);
+	cudaFree(d_v);
 
 	// now it's time for the predictor coefficient search loop
 	numU = numV = kMinUV;
@@ -606,27 +696,74 @@ int32_t ALACEncoder::EncodeStereoFast( BitBuffer * bitstream, void * inputBuffer
 	pbFactor	= 4;
 
 	minBits	= minBits1 = minBits2 = 1ul << 31;
+
+	int32_t *d_u, *d_v;
+
+	cudaMalloc(&d_u, numSamples * sizeof(int32_t));
+	cudaMalloc(&d_v, numSamples * sizeof(int32_t));
 	
+	cudaMemcpy(d_u, mMixBufferU, numSamples * sizeof(int32_t), cudaMemcpyHostToDevice);
+	cudaMemcpy(d_v, mMixBufferV, numSamples * sizeof(int32_t), cudaMemcpyHostToDevice);
+
 	// mix the stereo inputs with default mixBits/mixRes
 	switch ( mBitDepth )
 	{
-		case 16:
-			mix16( (int16_t *) inputBuffer, stride, mMixBufferU, mMixBufferV, numSamples, mixBits, mixRes );
+		case 16:{
+			int16_t *d_ip;
+			cudaMalloc(&d_ip, stride * numSamples * sizeof(int16_t));
+			cudaMemcpy(d_ip, (int16_t *)inputBuffer, stride * numSamples * sizeof(int16_t), cudaMemcpyHostToDevice);
+			mix16(d_ip, stride, d_u, d_v, numSamples, mixBits, mixRes);
+			cudaMemcpy((int16_t *)inputBuffer, d_ip, stride * numSamples * sizeof(int16_t), cudaMemcpyDeviceToHost);
+			cudaFree(d_ip);
 			break;
-		case 20:
-			mix20( (uint8_t *) inputBuffer, stride, mMixBufferU, mMixBufferV, numSamples, mixBits, mixRes );
+		}
+		case 20:{
+			uint8_t *d_ip;
+			cudaMalloc(&d_ip, stride * 3 * numSamples * sizeof(uint8_t));
+			cudaMemcpy(d_ip, (uint8_t *)inputBuffer, stride * 3 * numSamples * sizeof(uint8_t), cudaMemcpyHostToDevice);
+			mix20(d_ip, stride, d_u, d_v, numSamples, mixBits, mixRes);
+			cudaMemcpy((uint8_t *)inputBuffer, d_ip, stride * 3 * numSamples * sizeof(uint8_t), cudaMemcpyDeviceToHost);
+			cudaFree(d_ip);
 			break;
-		case 24:
+		}
+		case 24:{
 			// also extracts the shifted off bytes into the shift buffers
-			mix24( (uint8_t *) inputBuffer, stride, mMixBufferU, mMixBufferV, numSamples,
-					mixBits, mixRes, mShiftBufferUV, bytesShifted );
+			uint8_t *d_ip;
+			uint16_t *d_shiftUV;
+			cudaMalloc(&d_ip, stride * 3 * numSamples * sizeof(uint8_t));
+			cudaMalloc(&d_shiftUV, 2 * numSamples * sizeof(uint16_t));
+			cudaMemcpy(d_ip, (uint8_t *)inputBuffer, stride * 3 * numSamples * sizeof(uint8_t), cudaMemcpyHostToDevice);
+			cudaMemcpy(d_shiftUV, mShiftBufferUV, 2 * numSamples * sizeof(uint16_t), cudaMemcpyHostToDevice);
+			mix24(d_ip, stride, d_u, d_v, numSamples, mixBits, mixRes, d_shiftUV, bytesShifted);
+			cudaMemcpy(inputBuffer, (void *)d_ip, stride * 3 * numSamples * sizeof(uint8_t), cudaMemcpyDeviceToHost);
+			cudaMemcpy(mShiftBufferUV, d_shiftUV, 2 * numSamples * sizeof(uint16_t), cudaMemcpyDeviceToHost);
+			cudaFree(d_ip);
+			cudaFree(d_shiftUV);
 			break;
-		case 32:
+		}
+		case 32:{
 			// also extracts the shifted off bytes into the shift buffers
-			mix32( (int32_t *) inputBuffer, stride, mMixBufferU, mMixBufferV, numSamples,
-					mixBits, mixRes, mShiftBufferUV, bytesShifted );
+			int32_t *d_ip;
+			uint16_t *d_shiftUV;
+			cudaMalloc(&d_ip, stride * numSamples * sizeof(int32_t));
+			cudaMalloc(&d_shiftUV, 2 * numSamples * sizeof(uint16_t));
+			cudaMemcpy(d_ip, (int32_t *)inputBuffer, stride * numSamples * sizeof(int32_t), cudaMemcpyHostToDevice);
+			cudaMemcpy(d_shiftUV, mShiftBufferUV, 2 * numSamples * sizeof(uint16_t), cudaMemcpyHostToDevice);
+			mix32(d_ip, stride, d_u, d_v, numSamples, mixBits, mixRes, d_shiftUV, bytesShifted);
+			cudaMemcpy(inputBuffer, (void *)d_ip, stride * numSamples * sizeof(int32_t), cudaMemcpyDeviceToHost);
+			cudaMemcpy(mShiftBufferUV, d_shiftUV, 2 * numSamples * sizeof(uint16_t), cudaMemcpyDeviceToHost);
+			cudaFree(d_ip);
+			cudaFree(d_shiftUV);
 			break;
+		}
 	}
+
+	cudaMemcpy(mMixBufferU, d_u, numSamples * sizeof(int32_t), cudaMemcpyDeviceToHost);
+	cudaMemcpy(mMixBufferV, d_v, numSamples * sizeof(int32_t), cudaMemcpyDeviceToHost);
+
+	cudaFree(d_u);
+	cudaFree(d_v);
+
 
 	/* speculatively write the bitstream assuming the compressed version will be smaller */
 

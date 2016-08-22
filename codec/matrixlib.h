@@ -72,7 +72,6 @@ void	copyPredictorTo20( int32_t * in, uint8_t * out, uint32_t stride, int32_t nu
 
 void	copyPredictorTo32( int32_t * in, int32_t * out, uint32_t stride, int32_t numSamples );
 void	copyPredictorTo32Shift( int32_t * in, uint16_t * shift, int32_t * out, uint32_t stride, int32_t numSamples, int32_t bytesShifted );
-
 #ifdef __cplusplus
 }
 #endif

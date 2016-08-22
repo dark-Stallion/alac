@@ -95,21 +95,6 @@ __global__ void gpu_mix16_2(int16_t * ip, uint32_t stride, int32_t * u, int32_t 
 
 void mix16(int16_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numSamples, int32_t mixbits, int32_t mixres)
 {
-	int16_t	*ip = in;
-	int32_t	j;
-
-	int32_t *d_u, *d_v;
-	int16_t *d_ip;
-
-	cudaMalloc(&d_u, numSamples * sizeof(int32_t));
-	cudaMalloc(&d_v, numSamples * sizeof(int32_t));
-	cudaMalloc(&d_ip, stride * numSamples * sizeof(int16_t));
-
-	cudaMemcpy(d_u, u, numSamples * sizeof(int32_t), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_v, v, numSamples * sizeof(int32_t), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_ip, ip, stride * numSamples * sizeof(int16_t), cudaMemcpyHostToDevice);
-
-
 	if (mixres != 0)
 	{
 		int32_t		mod = 1 << mixbits;
@@ -118,25 +103,16 @@ void mix16(int16_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numS
 		/* matrixed stereo */
 		m2 = mod - mixres;
 
-		gpu_mix16_1 << < (numSamples + SIZE - 1) / SIZE, SIZE >> >(d_ip, stride, d_u, d_v, numSamples, m2, mixbits, mixres);
+		gpu_mix16_1 << < (numSamples + SIZE - 1) / SIZE, SIZE >> >(in, stride, u, v, numSamples, m2, mixbits, mixres);
 
 	
 	}
 	else
 	{
 		/* Conventional separated stereo. */
-
-		gpu_mix16_2<<< (numSamples + SIZE - 1) / SIZE, SIZE >>>(d_ip, stride, d_u, d_v, numSamples);
+		gpu_mix16_2<<< (numSamples + SIZE - 1) / SIZE, SIZE >>>(in, stride, u, v, numSamples);
 
 	}
-
-	cudaMemcpy(u, d_u, numSamples * sizeof(int32_t), cudaMemcpyDeviceToHost);
-	cudaMemcpy(v, d_v, numSamples * sizeof(int32_t), cudaMemcpyDeviceToHost);
-	cudaMemcpy(ip, d_ip, stride * numSamples * sizeof(int16_t), cudaMemcpyDeviceToHost);
-
-	cudaFree(d_u);
-	cudaFree(d_v);
-	cudaFree(d_ip);
 
 }
 
@@ -186,7 +162,7 @@ __global__ void gpu_mix20_2(uint8_t * ip, uint32_t stride, int32_t * u, int32_t 
 
 void mix20(uint8_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numSamples, int32_t mixbits, int32_t mixres)
 {
-	int32_t		l, r;
+	/*int32_t		l, r;
 	uint8_t *	ip = in;
 	int32_t			j;
 
@@ -202,7 +178,7 @@ void mix20(uint8_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numS
 
 	cudaMemcpy(d_u, u, numSamples * sizeof(int32_t), cudaMemcpyHostToDevice);
 	cudaMemcpy(d_v, v, numSamples * sizeof(int32_t), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_ip, ip, stride * 3 * numSamples * sizeof(uint8_t), cudaMemcpyHostToDevice);
+	cudaMemcpy(d_ip, ip, stride * 3 * numSamples * sizeof(uint8_t), cudaMemcpyHostToDevice);*/
 
 	if (mixres != 0)
 	{
@@ -210,24 +186,24 @@ void mix20(uint8_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numS
 		int32_t		mod = 1 << mixbits;
 		int32_t		m2 = mod - mixres;
 
-		gpu_mix20_1 << < (numSamples + SIZE - 1) / SIZE, SIZE >> >(d_ip, stride, d_u, d_v, numSamples, mixres, m2, mixbits);
+		gpu_mix20_1 << < (numSamples + SIZE - 1) / SIZE, SIZE >> >(in, stride, u, v, numSamples, mixres, m2, mixbits);
 
 	}
 	else
 	{
 
-		gpu_mix20_2 << < (numSamples + SIZE - 1) / SIZE, SIZE >> >(d_ip, stride, d_u, d_v, numSamples);
+		gpu_mix20_2 << < (numSamples + SIZE - 1) / SIZE, SIZE >> >(in, stride, u, v, numSamples);
 
 		/* Conventional separated stereo. */
 	}
 
-	cudaMemcpy(u, d_u, numSamples * sizeof(int32_t), cudaMemcpyDeviceToHost);
+	/*cudaMemcpy(u, d_u, numSamples * sizeof(int32_t), cudaMemcpyDeviceToHost);
 	cudaMemcpy(v, d_v, numSamples * sizeof(int32_t), cudaMemcpyDeviceToHost);
 	cudaMemcpy(ip, d_ip, stride * 3 * numSamples * sizeof(uint8_t), cudaMemcpyDeviceToHost);
 
 	cudaFree(d_u);
 	cudaFree(d_v);
-	cudaFree(d_ip);
+	cudaFree(d_ip);*/
 
 }
 
@@ -335,24 +311,9 @@ __global__ void gpu_mix24_2_2(uint8_t * ip, uint32_t stride, int32_t * u, int32_
 void mix24(uint8_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numSamples,
 	int32_t mixbits, int32_t mixres, uint16_t * shiftUV, int32_t bytesShifted)
 {
-	int32_t		l, r;
 	uint8_t *	ip = in;
-	uint8_t *	ip2 = in;
 	int32_t			shift = bytesShifted * 8;
 	uint32_t	mask = (1ul << shift) - 1;
-	int32_t			j, k;
-
-	int32_t *d_u, *d_v;
-	uint8_t *d_ip;
-
-	cudaMalloc(&d_u, numSamples * sizeof(int32_t));
-	cudaMalloc(&d_v, numSamples * sizeof(int32_t));
-	cudaMalloc(&d_ip, stride * 3 * numSamples * sizeof(uint8_t));
-
-
-	cudaMemcpy(d_u, u, numSamples * sizeof(int32_t), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_v, v, numSamples * sizeof(int32_t), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_ip, ip, stride * 3 * numSamples * sizeof(uint8_t), cudaMemcpyHostToDevice);
 
 	if (mixres != 0)
 	{
@@ -362,22 +323,11 @@ void mix24(uint8_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numS
 
 		if (bytesShifted != 0)
 		{
-			uint16_t *d_shiftUV;
-
-			cudaMalloc(&d_shiftUV, 2 * numSamples * sizeof(uint16_t));
-
-			cudaMemcpy(d_shiftUV, shiftUV, 2 * numSamples * sizeof(uint16_t), cudaMemcpyHostToDevice);
-
-			gpu_mix24_1_1 << < (numSamples + SIZE - 1) / SIZE, SIZE >> >(d_ip, stride, d_u, d_v, numSamples, d_shiftUV, mixres, mask, m2, mixbits, shift);
-
-			cudaMemcpy(shiftUV, d_shiftUV, 2 * numSamples * sizeof(uint16_t), cudaMemcpyDeviceToHost);
-
-			cudaFree(d_shiftUV);
+			gpu_mix24_1_1 << < (numSamples + SIZE - 1) / SIZE, SIZE >> >(ip, stride, u, v, numSamples, shiftUV, mixres, mask, m2, mixbits, shift);
 		}
 		else
 		{
-			printf("here mix24_1_2\n");
-			gpu_mix24_1_2 << < (numSamples + SIZE - 1) / SIZE, SIZE >> >(d_ip, stride, d_u, d_v, numSamples, mixres, m2, mixbits);
+			gpu_mix24_1_2 << < (numSamples + SIZE - 1) / SIZE, SIZE >> >(ip, stride, u, v, numSamples, mixres, m2, mixbits);
 		}
 	}
 	else
@@ -385,31 +335,13 @@ void mix24(uint8_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numS
 		/* Conventional separated stereo. */
 		if (bytesShifted != 0)
 		{
-			uint16_t *d_shiftUV;
-
-			cudaMalloc(&d_shiftUV, 2 * numSamples * sizeof(uint16_t));
-
-			cudaMemcpy(d_shiftUV, shiftUV, 2 * numSamples * sizeof(uint16_t), cudaMemcpyHostToDevice);
-
-			gpu_mix24_2_1 << < (numSamples + SIZE - 1) / SIZE, SIZE >> >(d_ip, stride, d_u, d_v, numSamples, d_shiftUV, mask, shift);
-
-			cudaMemcpy(shiftUV, d_shiftUV, 2 * numSamples * sizeof(uint16_t), cudaMemcpyDeviceToHost);
-
-			cudaFree(d_shiftUV);
+			gpu_mix24_2_1 << < (numSamples + SIZE - 1) / SIZE, SIZE >> >(ip, stride, u, v, numSamples, shiftUV, mask, shift);
 		}
 		else
 		{
-			gpu_mix24_2_2 << < (numSamples + SIZE - 1) / SIZE, SIZE >> >(d_ip, stride, d_u, d_v, numSamples);
+			gpu_mix24_2_2 << < (numSamples + SIZE - 1) / SIZE, SIZE >> >(ip, stride, u, v, numSamples);
 		}
 	}
-
-	cudaMemcpy(u, d_u, numSamples * sizeof(int32_t), cudaMemcpyDeviceToHost);
-	cudaMemcpy(v, d_v, numSamples * sizeof(int32_t), cudaMemcpyDeviceToHost);
-	cudaMemcpy(ip, d_ip, stride * 3 * numSamples * sizeof(uint8_t), cudaMemcpyDeviceToHost);
-
-	cudaFree(d_u);
-	cudaFree(d_v);
-	cudaFree(d_ip);
 
 }
 
@@ -484,20 +416,6 @@ void mix32(int32_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numS
 	int32_t	*	ip = in;
 	int32_t			shift = bytesShifted * 8;
 	uint32_t	mask = (1ul << shift) - 1;
-	int32_t		l, r;
-	int32_t			j, k;
-
-	int32_t *d_u, *d_v;
-	int32_t *d_ip;
-
-	cudaMalloc(&d_u, numSamples * sizeof(int32_t));
-	cudaMalloc(&d_v, numSamples * sizeof(int32_t));
-	cudaMalloc(&d_ip, stride * numSamples * sizeof(int32_t));
-
-
-	cudaMemcpy(d_u, u, numSamples * sizeof(int32_t), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_v, v, numSamples * sizeof(int32_t), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_ip, ip, stride * numSamples * sizeof(int32_t), cudaMemcpyHostToDevice);
 
 	if (mixres != 0)
 	{
@@ -509,52 +427,20 @@ void mix32(int32_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numS
 		/* matrixed stereo with shift */
 		m2 = mod - mixres;
 
-		uint16_t *d_shiftUV;
-
-		cudaMalloc(&d_shiftUV, 2 * numSamples * sizeof(uint16_t));
-
-		cudaMemcpy(d_shiftUV, shiftUV, 2 * numSamples * sizeof(uint16_t), cudaMemcpyHostToDevice);
-
-		gpu_mix32_1 << < (numSamples + SIZE - 1) / SIZE, SIZE >> >(d_ip, stride, d_u, d_v, numSamples, d_shiftUV, mixres, mask, m2, mixbits, shift);
-
-		cudaMemcpy(shiftUV, d_shiftUV, 2 * numSamples * sizeof(uint16_t), cudaMemcpyDeviceToHost);
-
-		cudaFree(d_shiftUV);
-
+		gpu_mix32_1 << < (numSamples + SIZE - 1) / SIZE, SIZE >> >(ip, stride, u, v, numSamples, shiftUV, mixres, mask, m2, mixbits, shift);
 	}
 	else
 	{
 		if (bytesShifted == 0)
 		{
 			/* de-interleaving w/o shift */
-
-			gpu_mix32_2_1 << < (numSamples + SIZE - 1) / SIZE, SIZE >> >(d_ip, stride, d_u, d_v, numSamples);
+			gpu_mix32_2_1 << < (numSamples + SIZE - 1) / SIZE, SIZE >> >(ip, stride, u, v, numSamples);
 		}
 		else
 		{
-			/* de-interleaving with shift */
-
-			uint16_t *d_shiftUV;
-
-			cudaMalloc(&d_shiftUV, 2 * numSamples * sizeof(uint16_t));
-
-			cudaMemcpy(d_shiftUV, shiftUV, 2 * numSamples * sizeof(uint16_t), cudaMemcpyHostToDevice);
-
-			gpu_mix32_2_2 << < (numSamples + SIZE - 1) / SIZE, SIZE >> >(d_ip, stride, d_u, d_v, numSamples, d_shiftUV, mask, shift);
-
-			cudaMemcpy(shiftUV, d_shiftUV, 2 * numSamples * sizeof(uint16_t), cudaMemcpyDeviceToHost);
-
-			cudaFree(d_shiftUV);
+			gpu_mix32_2_2 << < (numSamples + SIZE - 1) / SIZE, SIZE >> >(ip, stride, u, v, numSamples, shiftUV, mask, shift);
 		}
 	}
-
-	cudaMemcpy(u, d_u, numSamples * sizeof(int32_t), cudaMemcpyDeviceToHost);
-	cudaMemcpy(v, d_v, numSamples * sizeof(int32_t), cudaMemcpyDeviceToHost);
-	cudaMemcpy(ip, d_ip, stride * numSamples * sizeof(int32_t), cudaMemcpyDeviceToHost);
-
-	cudaFree(d_u);
-	cudaFree(d_v);
-	cudaFree(d_ip);
 
 }
 

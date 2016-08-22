@@ -203,27 +203,27 @@ __global__ void gpu_pc_block_2(int32_t *pin, int32_t *in, int32_t *pc1, int32_t 
 	{
 		LOOP_ALIGN
 
-		__shared__ int s1[1024];
-		__shared__ int s2[1024];
-		__shared__ int s3[1024];
-		__shared__ int s4[1024];
-		__shared__ int s5[1024];
-		__shared__ int s6[1024];
-		__shared__ int s7[1024];
-		__shared__ int s8[1024];
-		__shared__ int s9[1024];
+		__shared__ int32_t s1[1024];
+		__shared__ int32_t s2[1024];
+		__shared__ int32_t s3[1024];
+		__shared__ int32_t s4[1024];
+		__shared__ int32_t s5[1024];
+		__shared__ int32_t s6[1024];
+		__shared__ int32_t s7[1024];
+		__shared__ int32_t s8[1024];
+		__shared__ int32_t s9[1024];
 
 		s9[threadIdx.x] = in[z - lim];
 		pin = in + z - 1;
 
-		s1[threadIdx.x] = s9[threadIdx.x] - (*pin--);
-		s2[threadIdx.x] = s9[threadIdx.x] - (*pin--);
-		s3[threadIdx.x] = s9[threadIdx.x] - (*pin--);
-		s4[threadIdx.x] = s9[threadIdx.x] - (*pin--);
-		s5[threadIdx.x] = s9[threadIdx.x] - (*pin--);
-		s6[threadIdx.x] = s9[threadIdx.x] - (*pin--);
-		s7[threadIdx.x] = s9[threadIdx.x] - (*pin--);
-		s8[threadIdx.x] = s9[threadIdx.x] - (*pin);
+		s1[threadIdx.x] = s9[threadIdx.x] - (*(pin));
+		s2[threadIdx.x] = s9[threadIdx.x] - (*(pin - 1));
+		s3[threadIdx.x] = s9[threadIdx.x] - (*(pin - 2));
+		s4[threadIdx.x] = s9[threadIdx.x] - (*(pin - 3));
+		s5[threadIdx.x] = s9[threadIdx.x] - (*(pin - 4));
+		s6[threadIdx.x] = s9[threadIdx.x] - (*(pin - 5));
+		s7[threadIdx.x] = s9[threadIdx.x] - (*(pin - 6));
+		s8[threadIdx.x] = s9[threadIdx.x] - (*(pin - 7));
 
 		__syncthreads();
 
@@ -301,43 +301,43 @@ __global__ void gpu_pc_block_2(int32_t *pin, int32_t *in, int32_t *pc1, int32_t 
 					sgn = -((s8[j] < 0) ? -1 : (s8[j]>0) ? 1 : 0);
 					*a7 -= sgn;
 					del0 -= 1 * ((sgn * s8[j]) >> denshift);
-					if (del0 <= 0)
+					if (del0 >= 0)
 						continue;
 
 					sgn = -((s7[j] < 0) ? -1 : (s7[j]>0) ? 1 : 0);
 					*a6 -= sgn;
 					del0 -= 2 * ((sgn * s7[j]) >> denshift);
-					if (del0 <= 0)
+					if (del0 >= 0)
 						continue;
 
 					sgn = -((s6[j] < 0) ? -1 : (s6[j]>0) ? 1 : 0);
 					*a5 -= sgn;
 					del0 -= 3 * ((sgn * s6[j]) >> denshift);
-					if (del0 <= 0)
+					if (del0 >= 0)
 						continue;
 
 					sgn = -((s5[j] < 0) ? -1 : (s5[j]>0) ? 1 : 0);
 					*a4 -= sgn;
 					del0 -= 4 * ((sgn * s5[j]) >> denshift);
-					if (del0 <= 0)
+					if (del0 >= 0)
 						continue;
 
 					sgn = -((s4[j] < 0) ? -1 : (s4[j]>0) ? 1 : 0);
 					*a3 -= sgn;
 					del0 -= 5 * ((sgn * s4[j]) >> denshift);
-					if (del0 <= 0)
+					if (del0 >= 0)
 						continue;
 
 					sgn = -((s3[j] < 0) ? -1 : (s3[j]>0) ? 1 : 0);
 					*a2 -= sgn;
 					del0 -= 6 * ((sgn * s3[j]) >> denshift);
-					if (del0 <= 0)
+					if (del0 >= 0)
 						continue;
 
 					sgn = -((s2[j] < 0) ? -1 : (s2[j]>0) ? 1 : 0);
 					*a1 -= sgn;
 					del0 -= 7 * ((sgn * s2[j]) >> denshift);
-					if (del0 <= 0)
+					if (del0 >= 0)
 						continue;
 
 					*a0 += (s1[j] < 0) ? -1 : (s1[j]>0) ? 1 : 0;
@@ -458,6 +458,7 @@ void pc_block(int32_t * in, int32_t * pc1, int32_t num, int16_t * coefs, int32_t
 		a6 = coefs[6];
 		a7 = coefs[7];
 
+
 		int32_t *d_pin, *d_in, *d_pc1;
 		int16_t	*d_a0, *d_a1, *d_a2, *d_a3, *d_a4, *d_a5, *d_a6, *d_a7;
 
@@ -514,7 +515,7 @@ void pc_block(int32_t * in, int32_t * pc1, int32_t num, int16_t * coefs, int32_t
 		cudaFree(d_a5);
 		cudaFree(d_a6);
 		cudaFree(d_a7);
-		
+
 		coefs[0] = a0;
 		coefs[1] = a1;
 		coefs[2] = a2;
