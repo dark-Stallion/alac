@@ -31,10 +31,18 @@
 #include "EndianPortable.h"
 #include "ALACAudioTypes.h"
 
+#include <cuda.h>
+#include <cuda_runtime.h>
+#include "device_launch_parameters.h"
+#include <cuda_profiler_api.h>
+
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+
+
 #if __GNUC__ && TARGET_OS_MAC
 	#if __POWERPC__
 		#include <ppc_intrinsics.h>
@@ -61,15 +69,45 @@
 	- WSK 5/19/04
 */
 
+#define BSWAP32(x) (((x << 24) | ((x << 8) & 0x00ff0000) | ((x >> 8) & 0x0000ff00) | ((x >> 24) & 0x000000ff)))
+
+#if defined(__i386__)
+#define TARGET_RT_LITTLE_ENDIAN 1
+#elif defined(__x86_64__)
+#define TARGET_RT_LITTLE_ENDIAN 1
+#elif defined (TARGET_OS_WIN32)
+#define TARGET_RT_LITTLE_ENDIAN 1
+#endif
+
+__device__ uint32_t d_Swap32NtoB(uint32_t inUInt32)
+{
+#if TARGET_RT_LITTLE_ENDIAN
+	return BSWAP32(inUInt32);
+#else
+	return inUInt32;
+#endif
+}
+
+__device__ uint32_t d_Swap32BtoN(uint32_t inUInt32)
+{
+#if TARGET_RT_LITTLE_ENDIAN
+	return BSWAP32(inUInt32);
+#else
+	return inUInt32;
+#endif
+}
+
+
 // note: implementing this with some kind of "count leading zeros" assembly is a big performance win
-static inline int32_t lead( int32_t m )
+
+__device__ int32_t d_lead(int32_t m)
 {
 	long j;
 	unsigned long c = (1ul << 31);
 
-	for(j=0; j < 32; j++)
+	for (j = 0; j < 32; j++)
 	{
-		if((c & m) != 0)
+		if ((c & m) != 0)
 			break;
 		c >>= 1;
 	}
@@ -78,24 +116,27 @@ static inline int32_t lead( int32_t m )
 
 #define arithmin(a, b) ((a) < (b) ? (a) : (b))
 
-static inline int32_t ALWAYS_INLINE lg3a( int32_t x)
+
+__device__ int32_t d_lg3a(int32_t x)
 {
-    int32_t result;
 
-    x += 3;
-    result = lead(x);
+	int32_t result;
 
-    return 31 - result;
+	x += 3;
+	result = d_lead(x);
+
+	return 31 - result;
 }
 
-static inline int32_t ALWAYS_INLINE abs_func( int32_t a )
+
+__device__ int32_t d_abs_func(int32_t a)
 {
 	// note: the CW PPC intrinsic __abs() turns into these instructions so no need to try and use it
-	int32_t isneg  = a >> 31;
+	int32_t isneg = a >> 31;
 	int32_t xorval = a ^ isneg;
-	int32_t result = xorval-isneg;
-	
-	return result;	
+	int32_t result = xorval - isneg;
+
+	return result;
 }
 
 static inline uint32_t ALWAYS_INLINE read32bit( uint8_t * buffer )
@@ -112,7 +153,7 @@ static inline uint32_t ALWAYS_INLINE read32bit( uint8_t * buffer )
 #pragma mark -
 #endif
 
-static inline int32_t dyn_code(int32_t m, int32_t k, int32_t n, uint32_t *outNumBits)
+__device__ int32_t d_dyn_code(int32_t m, int32_t k, int32_t n, uint32_t *outNumBits)
 {
 	uint32_t 	div, mod, de;
 	uint32_t	numBits;
@@ -120,109 +161,131 @@ static inline int32_t dyn_code(int32_t m, int32_t k, int32_t n, uint32_t *outNum
 
 	//Assert( n >= 0 );
 
-	div = n/m;
+	div = n / m;
 
-	if(div >= MAX_PREFIX_16)
+	if (div >= MAX_PREFIX_16)
 	{
 		numBits = MAX_PREFIX_16 + MAX_DATATYPE_BITS_16;
-		value = (((1<<MAX_PREFIX_16)-1)<<MAX_DATATYPE_BITS_16) + n;
+		value = (((1 << MAX_PREFIX_16) - 1) << MAX_DATATYPE_BITS_16) + n;
 	}
 	else
 	{
 		mod = n%m;
 		de = (mod == 0);
 		numBits = div + k + 1 - de;
-		value = (((1<<div)-1)<<(numBits-div)) + mod + 1 - de;
+		value = (((1 << div) - 1) << (numBits - div)) + mod + 1 - de;
 
 		// if coding this way is bigger than doing escape, then do escape
 		if (numBits > MAX_PREFIX_16 + MAX_DATATYPE_BITS_16)
 		{
-		    numBits = MAX_PREFIX_16 + MAX_DATATYPE_BITS_16;
-		    value = (((1<<MAX_PREFIX_16)-1)<<MAX_DATATYPE_BITS_16) + n;            
+			numBits = MAX_PREFIX_16 + MAX_DATATYPE_BITS_16;
+			value = (((1 << MAX_PREFIX_16) - 1) << MAX_DATATYPE_BITS_16) + n;
 		}
 	}
-	
+
 	*outNumBits = numBits;
 
-	return (int32_t) value;
+	return (int32_t)value;
 }
 
 
-static inline int32_t dyn_code_32bit(int32_t maxbits, uint32_t m, uint32_t k, uint32_t n, uint32_t *outNumBits, uint32_t *outValue, uint32_t *overflow, uint32_t *overflowbits)
+__device__ int32_t d_dyn_code_32bit(int32_t maxbits, uint32_t m, uint32_t k, uint32_t n, uint32_t *outNumBits, uint32_t *outValue, uint32_t *overflow, uint32_t *overflowbits)
 {
 	uint32_t 	div, mod, de;
 	uint32_t	numBits;
 	uint32_t	value;
 	int32_t			didOverflow = 0;
 
-	div = n/m;
-
+	div = n / m;
 	if (div < MAX_PREFIX_32)
 	{
 		mod = n - (m * div);
 
 		de = (mod == 0);
 		numBits = div + k + 1 - de;
-		value = (((1<<div)-1)<<(numBits-div)) + mod + 1 - de;		
+		value = (((1 << div) - 1) << (numBits - div)) + mod + 1 - de;
 		if (numBits > 25)
 			goto codeasescape;
 	}
 	else
 	{
-codeasescape:
+	codeasescape:
 		numBits = MAX_PREFIX_32;
-		value = (((1<<MAX_PREFIX_32)-1));
+		value = (((1 << MAX_PREFIX_32) - 1));
 		*overflow = n;
 		*overflowbits = maxbits;
 		didOverflow = 1;
 	}
-	
+
 	*outNumBits = numBits;
 	*outValue = value;
-
 	return didOverflow;
 }
 
 
-static inline void ALWAYS_INLINE dyn_jam_noDeref(unsigned char *out, uint32_t bitPos, uint32_t numBits, uint32_t value)
+
+__device__ void d_dyn_jam_noDeref(unsigned char *out, uint32_t bitPos, uint32_t numBits, uint32_t value)
 {
-	uint32_t	*i = (uint32_t *)(out + (bitPos >> 3));
+//	printf("%d\n", bitPos);
+//	printf("%d\t%d\n", *out, out);
+
+	uint32_t i = 0;
+	i |= ((out + (bitPos >> 3))[3] << 24);
+	i |= ((out + (bitPos >> 3))[2] << 16);
+	i |= ((out + (bitPos >> 3))[1] << 8);
+	i |= ((out + (bitPos >> 3))[0]);
+
+//	uint32_t	*i = (uint32_t*)(out + (bitPos >> 3));
+
 	uint32_t	mask;
 	uint32_t	curr;
 	uint32_t	shift;
 
-	//Assert( numBits <= 32 );
+//	printf("%d\n", i);
 
-	curr = *i;
-	curr = Swap32NtoB( curr );
-
+	curr = i;
+	curr = d_Swap32NtoB(curr);
+//	printf("%d\t",curr);
 	shift = 32 - (bitPos & 7) - numBits;
-
+//	printf("%d\t", shift);
 	mask = ~0u >> (32 - numBits);		// mask must be created in two steps to avoid compiler sequencing ambiguity
 	mask <<= shift;
-
-	value  = (value << shift) & mask;
+//	printf("%d\t", mask);
+	value = (value << shift) & mask;
 	value |= curr & ~mask;
-	
-	*i = Swap32BtoN( value );
+//	printf("%d\n", value);
+	i = d_Swap32BtoN(value);
+
+	(out + (bitPos >> 3))[3] = (i >> 24) & 0xFF;
+	(out + (bitPos >> 3))[2] = (i >> 16) & 0xFF;
+	(out + (bitPos >> 3))[1] = (i >> 8) & 0xFF;
+	(out + (bitPos >> 3))[0] = i & 0xFF;
+
+//	printf("%d\n", i);
 }
 
 
-static inline void ALWAYS_INLINE dyn_jam_noDeref_large(unsigned char *out, uint32_t bitPos, uint32_t numBits, uint32_t value)
+__device__ void d_dyn_jam_noDeref_large(unsigned char *out, uint32_t bitPos, uint32_t numBits, uint32_t value)
 {
-	uint32_t *	i = (uint32_t *)(out + (bitPos>>3));
+
+	uint32_t i = 0;
+	i |= ((out + (bitPos >> 3))[3] << 24);
+	i |= ((out + (bitPos >> 3))[2] << 16);
+	i |= ((out + (bitPos >> 3))[1] << 8);
+	i |= ((out + (bitPos >> 3))[0]);
+
 	uint32_t	w;
 	uint32_t	curr;
 	uint32_t	mask;
-	int32_t			shiftvalue = (32 - (bitPos&7) - numBits);
-	
+	int32_t			shiftvalue = (32 - (bitPos & 7) - numBits);
 	//Assert(numBits <= 32);
 
-	curr = *i;
-	curr = Swap32NtoB( curr );
-
+	curr = i;
+	curr = d_Swap32NtoB(curr);
 	if (shiftvalue < 0)
 	{
+		printf("MARK");
+
 		uint8_t 	tailbyte;
 		uint8_t 	*tailptr;
 
@@ -231,7 +294,7 @@ static inline void ALWAYS_INLINE dyn_jam_noDeref_large(unsigned char *out, uint3
 		w |= (curr & ~mask);
 
 		tailptr = ((uint8_t *)i) + 4;
-		tailbyte = (value << ((8+shiftvalue))) & 0xff;
+		tailbyte = (value << ((8 + shiftvalue))) & 0xff;
 		*tailptr = (uint8_t)tailbyte;
 	}
 	else
@@ -239,36 +302,120 @@ static inline void ALWAYS_INLINE dyn_jam_noDeref_large(unsigned char *out, uint3
 		mask = ~0u >> (32 - numBits);
 		mask <<= shiftvalue;			// mask must be created in two steps to avoid compiler sequencing ambiguity
 
-		w  = (value << shiftvalue) & mask;
+		w = (value << shiftvalue) & mask;
 		w |= curr & ~mask;
 	}
-	
-	*i = Swap32BtoN( w );
+
+	i = d_Swap32BtoN(w);
+
+	(out + (bitPos >> 3))[3] = (i >> 24) & 0xFF;
+	(out + (bitPos >> 3))[2] = (i >> 16) & 0xFF;
+	(out + (bitPos >> 3))[1] = (i >> 8) & 0xFF;
+	(out + (bitPos >> 3))[0] = i & 0xFF;
 }
 
-/* //-s
-__global__ void gpu_dyn_comp_1(int32_t rowpos, int32_t numSamples, uint32_t m, uint32_t mb, uint32_t k, uint32_t kb, int32_t del, int32_t *inPtr, int32_t result)
+
+__global__ void gpu_dyn_comp(int32_t bitSize, uint32_t *mb, uint32_t	pb, uint32_t kb, uint32_t wb, int32_t *inPtr, int32_t numSamples, unsigned char * out,
+	uint32_t	*bitPos, int32_t	rowSize, int32_t rowJump, int32_t *status)
 {
-	int i = threadIdx.x;
+	uint32_t numBits, value, value2, overflow, overflowbits, n, m, k, mz, nz, c = 0;
+	int32_t del, zmode = 0, rowPos = 0;
+	int32_t result, didOverflow;
 
-	m = mb >> QBSHIFT;
-	//k = lg3a(m);
-	m += 3;
-	reasult = lead(m);
-	k = 31 - result;
-	if (k > kb)
+	while (c < numSamples)
 	{
-		k = kb;
+		m = *mb >> QBSHIFT;
+		k = d_lg3a(m);
+		if (k > kb)
+		{
+			k = kb;
+		}
+		m = (1 << k) - 1;
+
+		del = *inPtr++;			
+		rowPos++;
+
+		n = (d_abs_func(del) << 1) - ((del >> 31) & 1) - zmode;
+		//Assert( 32-lead(n) <= bitSize );
+//		printf("%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n\n", bitSize, m, k, n, numBits, value, overflow, overflowbits);
+		if (d_dyn_code_32bit(bitSize, m, k, n, &numBits, &value, &overflow, &overflowbits))
+		{ 
+			d_dyn_jam_noDeref(out, *bitPos, numBits, value);
+			*bitPos += numBits;
+			d_dyn_jam_noDeref_large(out, *bitPos, overflowbits, overflow);
+			*bitPos += overflowbits;
+		}
+		else
+		{
+//			printf("--->%d\t%d\n", *(out + 4), (out + 4));
+			d_dyn_jam_noDeref(out, *bitPos, numBits, value);
+//			printf("<---%d\t%d\n\n", *(out + 4), (out + 4));
+			*bitPos += numBits;
+		}
+
+//		printf("First- %d\n", *out);
+		c++;		// no need
+		if (rowPos >= rowSize)
+		{
+			rowPos = 0;
+			inPtr += rowJump;
+		}
+		*mb = pb * (n + zmode) + *mb - ((pb * *mb) >> QBSHIFT);
+
+		// update mean tracking if it's overflowed
+		if (n > N_MAX_MEAN_CLAMP)
+			*mb = N_MEAN_CLAMP_VAL;
+
+
+		zmode = 0;
+
+		RequireAction(c <= numSamples, *status = kALAC_ParamError; return;);			//<---------handle this
+		if (((*mb << MMULSHIFT) < QB) && (c < numSamples))
+		{
+			zmode = 1;
+			nz = 0;
+
+			while (c<numSamples && *inPtr == 0) //workable in cuda need to check -s
+			{
+				/* Take care of wrap-around globals. */
+				++inPtr;
+				++nz;
+				++c;
+				if (++rowPos >= rowSize)
+				{
+					rowPos = 0;
+					inPtr += rowJump;
+				}
+
+				if (nz >= 65535)
+				{
+					zmode = 0;
+					break;
+				}
+			}
+
+
+			k = d_lead(*mb) - BITOFF + ((*mb + MOFF) >> MDENSHIFT);
+			mz = ((1 << k) - 1) & wb;
+
+			value = d_dyn_code(mz, k, nz, &numBits);
+			d_dyn_jam_noDeref(out, *bitPos, numBits, value);
+			*bitPos += numBits;
+
+//			printf("First- %d\n", *out);
+
+			*mb = 0;
+		}
+//		printf("%d\t%d\t%d\t%d\t%d\t%d\t%d\n\n", *mb, pb, kb, wb, *inPtr, *out, *bitPos);
 	}
-	m = (1 << k) - 1;
+	
+}
 
-	del = *inPtr++;
-	rowPos++;
 
-} */
 
 int32_t dyn_comp( AGParamRecPtr params, int32_t * pc, BitBuffer * bitstream, int32_t numSamples, int32_t bitSize, uint32_t * outNumBits )
 {
+
     unsigned char *		out;
     uint32_t		bitPos, startPos;
     uint32_t			m, k, n, c, mz, nz;
@@ -283,12 +430,13 @@ int32_t dyn_comp( AGParamRecPtr params, int32_t * pc, BitBuffer * bitstream, int
     int32_t					rowPos = 0;
     int32_t					rowSize = params->sw;
     int32_t					rowJump = (params->fw) - rowSize;
-    int32_t *			inPtr = pc;
+//    int32_t *			inPtr = pc;
 //	int32_t				result; //-s
 	*outNumBits = 0;
 	RequireAction( (bitSize >= 1) && (bitSize <= 32), return kALAC_ParamError; );
 
 	out = bitstream->cur;
+	//printf("length- %d\n", sizeof(out));
 	startPos = bitstream->bitIndex;
     bitPos = startPos;
 
@@ -304,90 +452,49 @@ int32_t dyn_comp( AGParamRecPtr params, int32_t * pc, BitBuffer * bitstream, int
 /*	int32_t rowpos, int32_t numSamples, uint32_t m, uint32_t mb, uint32_t k, uint32_t kb, int32_t del, int32_t *inPtr int32_t result*/ //-s
 	
 
-    while (c < numSamples)
-    {
-         m  = mb >> QBSHIFT;
-        k = lg3a(m);
-        if ( k > kb)
-        {
-        	k = kb;
-        }
-        m = (1<<k)-1;
+//	printf("%d\t%d\t%d\t%d\t%d\t%d\t%d\n", mb, pb, kb, wb, *(pc + 1), out, startPos);
 
-        del = *inPtr++;
-        rowPos++;
-		
-        n = (abs_func(del) << 1) - ((del >> 31) & 1) - zmode;
-		//Assert( 32-lead(n) <= bitSize );
 
-		if ( dyn_code_32bit(bitSize, m, k, n, &numBits, &value, &overflow, &overflowbits) )
-		{
-			dyn_jam_noDeref(out, bitPos, numBits, value);
-			bitPos += numBits;			
-			dyn_jam_noDeref_large(out, bitPos, overflowbits, overflow);			
-			bitPos += overflowbits;
-		}
-		else
-		{
-			dyn_jam_noDeref(out, bitPos, numBits, value);
-			bitPos += numBits;
-		}
-      
-        c++;
-        if ( rowPos >= rowSize)
-        {
-        	rowPos = 0;
-        	inPtr += rowJump;
-        }
+	int32_t *d_pc, *d_status;
+	uint32_t *d_bitPos, *d_mb;
+	unsigned char *d_out;
 
-        mb = pb * (n + zmode) + mb - ((pb *mb)>>QBSHIFT);
+	cudaMalloc(&d_pc, numSamples * sizeof(int32_t));
+	cudaMalloc(&d_status, sizeof(int32_t));
+	cudaMalloc(&d_mb, sizeof(uint32_t));
+	cudaMalloc(&d_bitPos, sizeof(uint32_t));
+	cudaMalloc(&d_out, numSamples * 2 * sizeof(unsigned char));
 
-		// update mean tracking if it's overflowed
-		if (n > N_MAX_MEAN_CLAMP)
-			mb = N_MEAN_CLAMP_VAL;
+	cudaMemcpy(d_pc, pc, numSamples * sizeof(int32_t), cudaMemcpyHostToDevice);
+	cudaMemcpy(d_status, &status, sizeof(int32_t), cudaMemcpyHostToDevice);
+	cudaMemcpy(d_bitPos, &bitPos, sizeof(uint32_t), cudaMemcpyHostToDevice);
+	cudaMemcpy(d_mb, &mb, sizeof(uint32_t), cudaMemcpyHostToDevice);
+	cudaMemcpy(d_out, out, numSamples* 2 * sizeof(unsigned char), cudaMemcpyHostToDevice);
 
-        zmode = 0;
+	gpu_dyn_comp <<<1, 1>>>(bitSize, d_mb, pb, kb, wb, d_pc, numSamples, d_out,
+		d_bitPos, rowSize, rowJump, d_status);
 
-        RequireAction(c <= numSamples, status = kALAC_ParamError; goto Exit; );
+	cudaMemcpy(pc, d_pc, numSamples * sizeof(int32_t), cudaMemcpyDeviceToHost);
+	cudaMemcpy(&status, d_status, sizeof(int32_t), cudaMemcpyDeviceToHost);
+	cudaMemcpy(&bitPos, d_bitPos, sizeof(uint32_t), cudaMemcpyDeviceToHost);
+	cudaMemcpy(&mb, d_mb, sizeof(uint32_t), cudaMemcpyDeviceToHost);
+	cudaMemcpy(out, d_out, numSamples* 2 * sizeof(unsigned char), cudaMemcpyDeviceToHost);
 
-        if (((mb << MMULSHIFT) < QB) && (c < numSamples))
-        {
-            zmode = 1;
-            nz = 0;
+	cudaFree(d_pc);
+	cudaFree(d_status);
+	cudaFree(d_bitPos);
+	cudaFree(d_mb);
+	cudaFree(d_out);
 
-            while(c<numSamples && *inPtr == 0) //workable in cuda need to check -s
-            {
-            	/* Take care of wrap-around globals. */
-                ++inPtr;
-                ++nz;
-                ++c;
-                if ( ++rowPos >= rowSize)
-                {
-                	rowPos = 0;
-                	inPtr += rowJump;
-                }
+//	printf("%d\t%d\t%d\t%d\t%d\t%d\t%d\n\n", mb, pb, kb, wb, *pc, *out, bitPos);
+	if( status == kALAC_ParamError)
+		goto Exit;
 
-                if(nz >= 65535)
-                {
-                	zmode = 0;
-                	break;
-                }
-            }
-
-            k = lead(mb) - BITOFF+((mb+MOFF)>>MDENSHIFT);
-            mz = ((1<<k)-1) & wb;
-
-            value = dyn_code(mz, k, nz, &numBits);
-            dyn_jam_noDeref(out, bitPos, numBits, value);
-            bitPos += numBits;
-
-            mb = 0;
-        }
-    }
 
     *outNumBits = (bitPos - startPos);
 	BitBufferAdvance( bitstream, *outNumBits );
 
 Exit:
+//	printf("%d\t%d\t%d\t%d\t%d\t%d\t%d\n\n", mb, pb, kb, wb, *(pc), *out, bitPos);
 	return status;
 }

@@ -415,10 +415,11 @@ int32_t ALACEncoder::EncodeStereo( BitBuffer * bitstream, void * inputBuffer, ui
 		cudaMemcpy(mPredictorU, d_pcU, numSamples / dilate * sizeof(int32_t), cudaMemcpyDeviceToHost);
 		cudaMemcpy(mPredictorV, d_pcV, numSamples / dilate * sizeof(int32_t), cudaMemcpyDeviceToHost);
 
+
         // run the lossless compressor on each channel
         set_ag_params( &agParams, MB0, (pbFactor * PB0) / 4, KB0, numSamples/dilate, numSamples/dilate, MAX_RUN_DEFAULT );
         status = dyn_comp( &agParams, mPredictorU, &workBits, numSamples/dilate, chanBits, &bits1 );
-        RequireNoErr( status, goto Exit; );
+		RequireNoErr( status, goto Exit; );
 
         set_ag_params( &agParams, MB0, (pbFactor * PB0) / 4, KB0, numSamples/dilate, numSamples/dilate, MAX_RUN_DEFAULT );
         status = dyn_comp( &agParams, mPredictorV, &workBits, numSamples/dilate, chanBits, &bits2 );
@@ -535,7 +536,7 @@ int32_t ALACEncoder::EncodeStereo( BitBuffer * bitstream, void * inputBuffer, ui
 		dilate = 8;
 
 		set_ag_params( &agParams, MB0, (pbFactor * PB0)/4, KB0, numSamples/dilate, numSamples/dilate, MAX_RUN_DEFAULT );
-		status = dyn_comp( &agParams, mPredictorU, &workBits, numSamples/dilate, chanBits, &bits1 );
+		status = dyn_comp(&agParams, mPredictorU, &workBits, numSamples / dilate, chanBits, &bits1);
 
 		if ( (bits1 * dilate + 16 * numUV) < minBits1 )
 		{
