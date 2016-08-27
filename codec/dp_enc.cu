@@ -115,6 +115,11 @@ __global__ void gpu_pc_block_4(int32_t *in, int32_t *pc1, int32_t lim, int32_t n
 {
 
 	int z = threadIdx.x + g * blockDim.x; 
+
+	if (z == lim){
+//		printf("%d\t%d\t%d\t%d\n", coefs[0], coefs[1], coefs[2], coefs[3]);
+	}
+
 	if (z >= lim && z < num)
 	{
 		LOOP_ALIGN
@@ -213,6 +218,9 @@ __global__ void gpu_pc_block_4(int32_t *in, int32_t *pc1, int32_t lim, int32_t n
 			coefs[2] = a2;
 			coefs[3] = a3;
 		}
+	}
+	if (z == lim){
+//		printf("%d\t%d\t%d\t%d\n\n", coefs[0], coefs[1], coefs[2], coefs[3]);
 	}
 }
 
@@ -431,30 +439,6 @@ __global__ void gpu_pc_block(int32_t * in, int32_t * pc1, int32_t num, int16_t *
 
 	if ( numactive == 4 )
 	{
-		// optimization for numactive == 4
-		/*a0 = coefs[0];
-		a1 = coefs[1];
-		a2 = coefs[2];
-		a3 = coefs[3];*/
-
-	/*	int32_t *d_in, *d_pc1;*/
-		/*int16_t	*d_a0, *d_a1, *d_a2, *d_a3;*/
-
-		/*cudaMalloc(&d_in, num * sizeof(int32_t));
-		cudaMalloc(&d_pc1, num * sizeof(int32_t));*/
-
-		/*cudaMalloc((void**)&d_a0, sizeof(int16_t));
-		cudaMalloc((void**)&d_a1, sizeof(int16_t));
-		cudaMalloc((void**)&d_a2, sizeof(int16_t));
-		cudaMalloc((void**)&d_a3, sizeof(int16_t));*/
-
-		/*cudaMemcpy(d_in, in, num * sizeof(int32_t), cudaMemcpyHostToDevice);
-		cudaMemcpy(d_pc1, pc1, num * sizeof(int32_t), cudaMemcpyHostToDevice);*/
-
-		/*cudaMemcpy(d_a0, &a0, sizeof(int16_t), cudaMemcpyHostToDevice);
-		cudaMemcpy(d_a1, &a1, sizeof(int16_t), cudaMemcpyHostToDevice);
-		cudaMemcpy(d_a2, &a2, sizeof(int16_t), cudaMemcpyHostToDevice);
-		cudaMemcpy(d_a3, &a3, sizeof(int16_t), cudaMemcpyHostToDevice);*/
 		
 		int n = num;
 		for (int i = 0; i < (num + SIZE - 1) / SIZE; i++){
@@ -462,70 +446,10 @@ __global__ void gpu_pc_block(int32_t * in, int32_t * pc1, int32_t num, int16_t *
 			n -= 1024;
 		}
 
-		/*cudaMemcpy(&a0, d_a0, sizeof(int16_t), cudaMemcpyDeviceToHost);
-		cudaMemcpy(&a1, d_a1, sizeof(int16_t), cudaMemcpyDeviceToHost);
-		cudaMemcpy(&a2, d_a2, sizeof(int16_t), cudaMemcpyDeviceToHost);
-		cudaMemcpy(&a3, d_a3, sizeof(int16_t), cudaMemcpyDeviceToHost);*/
-
-		/*cudaMemcpy(in, d_in, num * sizeof(int32_t), cudaMemcpyDeviceToHost);
-		cudaMemcpy(pc1, d_pc1, num * sizeof(int32_t), cudaMemcpyDeviceToHost);
-
-		cudaFree(d_in);
-		cudaFree(d_pc1);*/
-
-		/*cudaFree(d_a0);
-		cudaFree(d_a1);
-		cudaFree(d_a2);
-		cudaFree(d_a3);*/
-
-		/*coefs[0] = a0;
-		coefs[1] = a1;
-		coefs[2] = a2;
-		coefs[3] = a3;*/
 	}
 	else if ( numactive == 8 )
 	{
 
-		// optimization for numactive == 8
-		/*register int16_t	a4, a5, a6, a7;
-		register int32_t	b4, b5, b6, b7;*/
-
-		/*a0 = coefs[0];
-		a1 = coefs[1];
-		a2 = coefs[2];
-		a3 = coefs[3];
-		a4 = coefs[4];
-		a5 = coefs[5];
-		a6 = coefs[6];
-		a7 = coefs[7];*/
-
-
-		/*int32_t *d_pin, *d_in, *d_pc1;
-		int16_t	*d_a0, *d_a1, *d_a2, *d_a3, *d_a4, *d_a5, *d_a6, *d_a7;
-
-		cudaMalloc(&d_in, num * sizeof(int32_t));
-		cudaMalloc(&d_pc1, num * sizeof(int32_t));
-
-		cudaMalloc((void**)&d_a0, sizeof(int16_t));
-		cudaMalloc((void**)&d_a1, sizeof(int16_t));
-		cudaMalloc((void**)&d_a2, sizeof(int16_t));
-		cudaMalloc((void**)&d_a3, sizeof(int16_t));
-		cudaMalloc((void**)&d_a4, sizeof(int16_t));
-		cudaMalloc((void**)&d_a5, sizeof(int16_t));
-		cudaMalloc((void**)&d_a6, sizeof(int16_t));
-		cudaMalloc((void**)&d_a7, sizeof(int16_t));
-
-		cudaMemcpy(d_in, in, num * sizeof(int32_t), cudaMemcpyHostToDevice);
-		cudaMemcpy(d_pc1, pc1, num * sizeof(int32_t), cudaMemcpyHostToDevice);
-
-		cudaMemcpy(d_a0, &a0, sizeof(int16_t), cudaMemcpyHostToDevice);
-		cudaMemcpy(d_a1, &a1, sizeof(int16_t), cudaMemcpyHostToDevice);
-		cudaMemcpy(d_a2, &a2, sizeof(int16_t), cudaMemcpyHostToDevice);
-		cudaMemcpy(d_a3, &a3, sizeof(int16_t), cudaMemcpyHostToDevice);
-		cudaMemcpy(d_a4, &a4, sizeof(int16_t), cudaMemcpyHostToDevice);
-		cudaMemcpy(d_a5, &a5, sizeof(int16_t), cudaMemcpyHostToDevice);
-		cudaMemcpy(d_a6, &a6, sizeof(int16_t), cudaMemcpyHostToDevice);
-		cudaMemcpy(d_a7, &a7, sizeof(int16_t), cudaMemcpyHostToDevice);*/
 
 		int n = num;
 		for (int i = 0; i < (num + SIZE - 1) / SIZE; i++){
@@ -533,38 +457,6 @@ __global__ void gpu_pc_block(int32_t * in, int32_t * pc1, int32_t num, int16_t *
 			n -= 1024;
 		}
 
-		/*cudaMemcpy(&a0, d_a0, sizeof(int16_t), cudaMemcpyDeviceToHost);
-		cudaMemcpy(&a1, d_a1, sizeof(int16_t), cudaMemcpyDeviceToHost);
-		cudaMemcpy(&a2, d_a2, sizeof(int16_t), cudaMemcpyDeviceToHost);
-		cudaMemcpy(&a3, d_a3, sizeof(int16_t), cudaMemcpyDeviceToHost);
-		cudaMemcpy(&a4, d_a4, sizeof(int16_t), cudaMemcpyDeviceToHost);
-		cudaMemcpy(&a5, d_a5, sizeof(int16_t), cudaMemcpyDeviceToHost);
-		cudaMemcpy(&a6, d_a6, sizeof(int16_t), cudaMemcpyDeviceToHost);
-		cudaMemcpy(&a7, d_a7, sizeof(int16_t), cudaMemcpyDeviceToHost);
-
-		cudaMemcpy(in, d_in, num * sizeof(int32_t), cudaMemcpyDeviceToHost);
-		cudaMemcpy(pc1, d_pc1, num * sizeof(int32_t), cudaMemcpyDeviceToHost);
-
-		cudaFree(d_in);
-		cudaFree(d_pc1);
-
-		cudaFree(d_a0);
-		cudaFree(d_a1);
-		cudaFree(d_a2);
-		cudaFree(d_a3);
-		cudaFree(d_a4);
-		cudaFree(d_a5);
-		cudaFree(d_a6);
-		cudaFree(d_a7);*/
-
-		/*coefs[0] = a0;
-		coefs[1] = a1;
-		coefs[2] = a2;
-		coefs[3] = a3;
-		coefs[4] = a4;
-		coefs[5] = a5;
-		coefs[6] = a6;
-		coefs[7] = a7;*/
 	}
 	else
 	{

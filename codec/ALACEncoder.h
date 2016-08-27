@@ -55,7 +55,7 @@ class ALACEncoder
     protected:
 		virtual void		GetSourceFormat( const AudioFormatDescription * source, AudioFormatDescription * output );
 		
-		int32_t			EncodeStereo( struct BitBuffer * bitstream, void * input, uint32_t stride, uint32_t channelIndex, uint32_t numSamples );
+		int32_t			EncodeStereo(struct BitBuffer * bitstream, void * input, uint32_t stride, uint32_t channelIndex, uint32_t numSamples);
 		int32_t			EncodeStereoFast( struct BitBuffer * bitstream, void * input, uint32_t stride, uint32_t channelIndex, uint32_t numSamples );
 		int32_t			EncodeStereoEscape( struct BitBuffer * bitstream, void * input, uint32_t stride, uint32_t numSamples );
 		int32_t			EncodeMono( struct BitBuffer * bitstream, void * input, uint32_t stride, uint32_t channelIndex, uint32_t numSamples );

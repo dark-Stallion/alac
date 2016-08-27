@@ -318,6 +318,8 @@ __device__ void d_dyn_jam_noDeref_large(unsigned char *out, uint32_t bitPos, uin
 __global__ void gpu_dyn_comp(int32_t bitSize, uint32_t *mb, uint32_t	pb, uint32_t kb, uint32_t wb, int32_t *inPtr, int32_t numSamples, unsigned char * out,
 	uint32_t	*bitPos, int32_t	rowSize, int32_t rowJump, int32_t *status)
 {
+//	printf("%d\t%d\t%d\t%d\t%d\t%d\t%d\n", *mb, pb, kb, wb, *(inPtr+1), *out, *bitPos);
+
 	uint32_t numBits, value, value2, overflow, overflowbits, n, m, k, mz, nz, c = 0;
 	int32_t del, zmode = 0, rowPos = 0;
 	int32_t result, didOverflow;
@@ -347,9 +349,9 @@ __global__ void gpu_dyn_comp(int32_t bitSize, uint32_t *mb, uint32_t	pb, uint32_
 		}
 		else
 		{
-//			printf("--->%d\t%d\n", *(out + 4), (out + 4));
+//			printf("--->%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t\n", *(out), (out), *(out + 1), (out + 1), *(out + 2), (out + 2), *(out + 3), (out + 3));
 			d_dyn_jam_noDeref(out, *bitPos, numBits, value);
-//			printf("<---%d\t%d\n\n", *(out + 4), (out + 4));
+//			printf("<---%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t\n\n", *(out), (out), *(out + 1), (out + 1), *(out + 2), (out + 2), *(out + 3), (out + 3));
 			*bitPos += numBits;
 		}
 
@@ -408,7 +410,7 @@ __global__ void gpu_dyn_comp(int32_t bitSize, uint32_t *mb, uint32_t	pb, uint32_
 		}
 //		printf("%d\t%d\t%d\t%d\t%d\t%d\t%d\n\n", *mb, pb, kb, wb, *inPtr, *out, *bitPos);
 	}
-	
+//	printf("%d\t%d\t%d\t%d\t%d\t%d\t%d\n\n", *mb, pb, kb, wb, *(inPtr + 1), *out, *bitPos);
 }
 
 
@@ -452,35 +454,34 @@ int32_t dyn_comp( AGParamRecPtr params, int32_t * pc, BitBuffer * bitstream, int
 /*	int32_t rowpos, int32_t numSamples, uint32_t m, uint32_t mb, uint32_t k, uint32_t kb, int32_t del, int32_t *inPtr int32_t result*/ //-s
 	
 
-//	printf("%d\t%d\t%d\t%d\t%d\t%d\t%d\n", mb, pb, kb, wb, *(pc + 1), out, startPos);
+//	printf("%d\t%d\t%d\t%d\t%d\t%d\n", mb, pb, kb, wb, out, startPos);
 
-
-	int32_t *d_pc, *d_status;
+	int32_t *d_status;
 	uint32_t *d_bitPos, *d_mb;
 	unsigned char *d_out;
 
-	cudaMalloc(&d_pc, numSamples * sizeof(int32_t));
+//	cudaMalloc(&d_pc, numSamples * sizeof(int32_t));
 	cudaMalloc(&d_status, sizeof(int32_t));
 	cudaMalloc(&d_mb, sizeof(uint32_t));
 	cudaMalloc(&d_bitPos, sizeof(uint32_t));
 	cudaMalloc(&d_out, numSamples * 2 * sizeof(unsigned char));
 
-	cudaMemcpy(d_pc, pc, numSamples * sizeof(int32_t), cudaMemcpyHostToDevice);
+//	cudaMemcpy(d_pc, pc, numSamples * sizeof(int32_t), cudaMemcpyHostToDevice);
 	cudaMemcpy(d_status, &status, sizeof(int32_t), cudaMemcpyHostToDevice);
 	cudaMemcpy(d_bitPos, &bitPos, sizeof(uint32_t), cudaMemcpyHostToDevice);
 	cudaMemcpy(d_mb, &mb, sizeof(uint32_t), cudaMemcpyHostToDevice);
 	cudaMemcpy(d_out, out, numSamples* 2 * sizeof(unsigned char), cudaMemcpyHostToDevice);
 
-	gpu_dyn_comp <<<1, 1>>>(bitSize, d_mb, pb, kb, wb, d_pc, numSamples, d_out,
+	gpu_dyn_comp << <1, 1 >> >(bitSize, d_mb, pb, kb, wb, pc, numSamples, d_out,
 		d_bitPos, rowSize, rowJump, d_status);
 
-	cudaMemcpy(pc, d_pc, numSamples * sizeof(int32_t), cudaMemcpyDeviceToHost);
+//	cudaMemcpy(pc, d_pc, numSamples * sizeof(int32_t), cudaMemcpyDeviceToHost);
 	cudaMemcpy(&status, d_status, sizeof(int32_t), cudaMemcpyDeviceToHost);
 	cudaMemcpy(&bitPos, d_bitPos, sizeof(uint32_t), cudaMemcpyDeviceToHost);
 	cudaMemcpy(&mb, d_mb, sizeof(uint32_t), cudaMemcpyDeviceToHost);
 	cudaMemcpy(out, d_out, numSamples* 2 * sizeof(unsigned char), cudaMemcpyDeviceToHost);
 
-	cudaFree(d_pc);
+//	cudaFree(d_pc);
 	cudaFree(d_status);
 	cudaFree(d_bitPos);
 	cudaFree(d_mb);

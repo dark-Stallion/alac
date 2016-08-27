@@ -70,7 +70,7 @@ R = L - v;
 
 __global__ void gpu_mix16_1(int16_t * ip, uint32_t stride, int32_t * u, int32_t * v, int32_t numSamples, int32_t m2, int32_t mixbits, int32_t mixres)
 {
-	int z = threadIdx.x + blockIdx.x * blockDim.x;
+	int z = threadIdx.x + blockIdx.x * blockDim.x; 
 	if (z < numSamples)
 	{
 		int32_t		l, r;
@@ -95,6 +95,7 @@ __global__ void gpu_mix16_2(int16_t * ip, uint32_t stride, int32_t * u, int32_t 
 
 void mix16(int16_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numSamples, int32_t mixbits, int32_t mixres)
 {
+
 	if (mixres != 0)
 	{
 		int32_t		mod = 1 << mixbits;
@@ -113,7 +114,6 @@ void mix16(int16_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numS
 		gpu_mix16_2<<< (numSamples + SIZE - 1) / SIZE, SIZE >>>(in, stride, u, v, numSamples);
 
 	}
-
 }
 
 __global__ void gpu_mix20_1(uint8_t * ip, uint32_t stride, int32_t * u, int32_t * v, int32_t numSamples, int32_t mixres, int32_t m2, int32_t mixbits)
@@ -314,6 +314,8 @@ __global__ void gpu_mix24_2_2(uint8_t * ip, uint32_t stride, int32_t * u, int32_
 void mix24(uint8_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numSamples,
 	int32_t mixbits, int32_t mixres, uint16_t * shiftUV, int32_t bytesShifted)
 {
+//	printf("%d\t%d\t%d\t%d\n", *(uint8_t*)in, (uint8_t*)in, *((uint8_t*)in + 1), (uint8_t*)in + 1);
+
 	uint8_t *	ip = in;
 	int32_t			shift = bytesShifted * 8;
 	uint32_t	mask = (1ul << shift) - 1;
