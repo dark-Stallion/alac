@@ -409,6 +409,11 @@ int32_t EncodeALAC(FILE * inputFile, FILE * outputFile, AudioFormatDescription t
 	theEncoder->SetFrameSize(theOutputFormat.mFramesPerPacket);
 	theEncoder->InitializeEncoder(theOutputFormat);
 
+
+
+
+
+
 	// we only write out the caff header, the 'desc' chunk. the 'kuki' chunk, the 'pakt' chunk and the 'data' chunk
 	// write out the caff header
 	WriteCAFFcaffChunk(outputFile);
@@ -453,6 +458,10 @@ int32_t EncodeALAC(FILE * inputFile, FILE * outputFile, AudioFormatDescription t
 
 	// We'll write out the data chunk next. The 'data' size will start past the 'data' chunk identifier
 	dataSizePos = ftell(outputFile) + sizeof(uint32_t);
+
+
+
+
 
 	// Finally, write out the data chunk
 	WriteCAFFdataChunk(outputFile);

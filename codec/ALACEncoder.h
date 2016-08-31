@@ -77,9 +77,15 @@ class ALACEncoder
 		
 		uint8_t *					mWorkBuffer;
 
+		// Note: in C you can't typecast to a 2-dimensional array pointer but that's what we need when
+		// picking which coefs to use so we declare this typedef b/c we *can* typecast to this type
+		typedef int16_t(*SearchCoefs)[kALACMaxCoefs];
+
 		// per-channel coefficients buffers
-		int16_t					mCoefsU[kALACMaxChannels][kALACMaxSearches][kALACMaxCoefs];
-		int16_t					mCoefsV[kALACMaxChannels][kALACMaxSearches][kALACMaxCoefs];
+		int16_t *				mCoefsU;
+		int16_t *				mCoefsV;
+		SearchCoefs				b_coefsU;
+		SearchCoefs				b_coefsV;
 
 		// encoding statistics
 		uint32_t					mTotalBytesGenerated;

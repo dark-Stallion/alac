@@ -116,9 +116,9 @@ __global__ void gpu_pc_block_4(int32_t *in, int32_t *pc1, int32_t lim, int32_t n
 
 	int z = threadIdx.x + g * blockDim.x; 
 
-	if (z == lim){
+//	if (z == lim){
 //		printf("%d\t%d\t%d\t%d\n", coefs[0], coefs[1], coefs[2], coefs[3]);
-	}
+//	}
 
 	if (z >= lim && z < num)
 	{
@@ -219,15 +219,15 @@ __global__ void gpu_pc_block_4(int32_t *in, int32_t *pc1, int32_t lim, int32_t n
 			coefs[3] = a3;
 		}
 	}
-	if (z == lim){
+//	if (z == lim){
 //		printf("%d\t%d\t%d\t%d\n\n", coefs[0], coefs[1], coefs[2], coefs[3]);
-	}
+//	}
 }
 
 __global__ void gpu_pc_block_8(int32_t *in, int32_t *pc1, int32_t lim, int32_t num, int32_t sum1, int32_t denhalf,
 	uint32_t denshift, int16_t * coefs, int32_t del, int32_t sg, int32_t del0, uint32_t chanshift, int32_t sgn, int g, int limit)
 {
-	
+
 	int z = threadIdx.x + g * blockDim.x;
 	if (z >= lim && z < num)
 	{
@@ -261,6 +261,7 @@ __global__ void gpu_pc_block_8(int32_t *in, int32_t *pc1, int32_t lim, int32_t n
 
 			register int16_t a0, a1, a2, a3, a4, a5, a6, a7;
 
+
 			a0 = coefs[0];
 			a1 = coefs[1];
 			a2 = coefs[2];
@@ -269,6 +270,10 @@ __global__ void gpu_pc_block_8(int32_t *in, int32_t *pc1, int32_t lim, int32_t n
 			a5 = coefs[5];
 			a6 = coefs[6];
 			a7 = coefs[7];
+
+//			printf("%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n",coefs[0], coefs[1],
+//				coefs[2], coefs[3], coefs[4], coefs[5], coefs[6], coefs[7]);
+			
 
 			int n;
 			if (g != 0)
@@ -394,12 +399,18 @@ __global__ void gpu_pc_block_8(int32_t *in, int32_t *pc1, int32_t lim, int32_t n
 			coefs[5] = a5;
 			coefs[6] = a6;
 			coefs[7] = a7;
+
+//			printf("%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n", coefs[0], coefs[1],
+//				coefs[2], coefs[3], coefs[4], coefs[5], coefs[6], coefs[7]);
 		}
 	}
 }
 
 __global__ void gpu_pc_block(int32_t * in, int32_t * pc1, int32_t num, int16_t * coefs, int32_t numactive, uint32_t chanbits, uint32_t denshift)
 {
+
+//	printf("%d\t%d\t%d\t%d\n", coefs[0], coefs[1], coefs[2], coefs[3]);
+
 	/*register int16_t	a0, a1, a2, a3;
 	register int32_t	b0, b1, b2, b3;*/		//<-----used in parallel
 	int32_t					j, k, lim;
@@ -439,23 +450,23 @@ __global__ void gpu_pc_block(int32_t * in, int32_t * pc1, int32_t num, int16_t *
 
 	if ( numactive == 4 )
 	{
-		
+//		printf("%d\t%d\t%d\t%d\n", coefs[0], coefs[1], coefs[2], coefs[3]);
 		int n = num;
 		for (int i = 0; i < (num + SIZE - 1) / SIZE; i++){
 			gpu_pc_block_4 << <1, SIZE >> >(in, pc1, lim, num, sum1, denhalf, denshift, coefs, del, sg, del0, chanshift, sgn, i, n);
 			n -= 1024;
 		}
-
+//		printf("%d\t%d\t%d\t%d\n\n", coefs[0], coefs[1], coefs[2], coefs[3]);
 	}
 	else if ( numactive == 8 )
 	{
-
-
+//		printf("%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n", coefs[0], coefs[1], coefs[2], coefs[3], coefs[4], coefs[5], coefs[6], coefs[7]);
 		int n = num;
 		for (int i = 0; i < (num + SIZE - 1) / SIZE; i++){
 			gpu_pc_block_8 << <1, SIZE >> >(in, pc1, lim, num, sum1, denhalf, denshift, coefs, del, sg, del0, chanshift, sgn, i, n);
 			n -= 1024;
 		}
+//		printf("%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n\n", coefs[0], coefs[1], coefs[2], coefs[3], coefs[4], coefs[5], coefs[6], coefs[7]);
 
 	}
 	else

@@ -46,9 +46,7 @@
 #include "ALACAudioTypes.h"
 #include "EndianPortable.h"
 
-// Note: in C you can't typecast to a 2-dimensional array pointer but that's what we need when
-// picking which coefs to use so we declare this typedef b/c we *can* typecast to this type
-typedef int16_t (*SearchCoefs)[kALACMaxCoefs];
+//typedef int16_t (*SearchCoefs)[kALACMaxCoefs];
 
 // defines/constants
 const uint32_t kALACEncoderMagic	= 'dpge';
@@ -132,31 +130,31 @@ ALACEncoder::~ALACEncoder()
 	// delete the matrix mixing buffers
 	if ( mMixBufferU )
     {
-		free(mMixBufferU);
+		cudaFree(mMixBufferU);
         mMixBufferU = NULL;
     }
 	if ( mMixBufferV )
     {
-		free(mMixBufferV);
+		cudaFree(mMixBufferV);
         mMixBufferV = NULL;
     }
 	
 	// delete the dynamic predictor's "corrector" buffers
 	if ( mPredictorU )
     {
-		free(mPredictorU);
+		cudaFree(mPredictorU);
         mPredictorU = NULL;
     }
 	if ( mPredictorV )
     {
-		free(mPredictorV);
+		cudaFree(mPredictorV);
         mPredictorV = NULL;
     }
 
 	// delete the unused byte shift buffer
 	if ( mShiftBufferUV )
     {
-		free(mShiftBufferUV);
+		cudaFree(mShiftBufferUV);
         mShiftBufferUV = NULL;
     }
 
@@ -269,22 +267,6 @@ ALACEncoder::~ALACEncoder()
 	EncodeStereo()
 	- encode a channel pair
 */
-
-
-__global__ void VoidToBit8(unsigned char * inputBuffer, uint8_t * d_ip, int n){
-
-	int i = threadIdx.x + blockIdx.x * blockDim.x;
-	if (i<n)
-		d_ip[i] = inputBuffer[i];
-}
-
-__global__ void Bit8ToVoid(unsigned char * inputBuffer, uint8_t * d_ip, int n){
-
-	int i = threadIdx.x + blockIdx.x * blockDim.x;
-	if (i<n)
-		inputBuffer[i] = d_ip[i];
-}
-
 int32_t ALACEncoder::EncodeStereo(BitBuffer * bitstream, void * d_ip, uint32_t stride, uint32_t channelIndex, uint32_t numSamples)
 {
 //	printf("%d\t%d\t%d\t%d\n", *(uint8_t*)d_ip, (uint8_t*)d_ip, *((uint8_t*)d_ip + 1), (uint8_t*)d_ip + 1);
@@ -302,8 +284,8 @@ int32_t ALACEncoder::EncodeStereo(BitBuffer * bitstream, void * d_ip, uint32_t s
 	uint32_t			chanBits;
 	uint32_t			denShift;
 	uint8_t			bytesShifted;
-	SearchCoefs		coefsU;
-	SearchCoefs		coefsV;
+	int16_t*		coefsU;
+	int16_t*		coefsV;
 	uint32_t			index;
 	uint8_t			partialFrame;
 	uint32_t			escapeBits;
@@ -318,8 +300,13 @@ int32_t ALACEncoder::EncodeStereo(BitBuffer * bitstream, void * d_ip, uint32_t s
 	//	 actually results in better overall compression
 	// - strangely, re-using the same coefs for the different passes of the "mixRes" search loop instead of using
 	//	 different coefs for the different passes of "mixRes" results in even better compression
-	coefsU = (SearchCoefs) mCoefsU[channelIndex];
-	coefsV = (SearchCoefs) mCoefsV[channelIndex];
+	cudaMalloc(&coefsU, 16 * 16 * sizeof(int16_t));
+	cudaMalloc(&coefsV, 16 * 16 * sizeof(int16_t));
+
+	int m = channelIndex * 16 * 16;
+
+	cudaMemcpy(coefsU, mCoefsU + m, 16 * 16 * sizeof(int16_t), cudaMemcpyDeviceToDevice);
+	cudaMemcpy(coefsV, mCoefsV + m, 16 * 16 * sizeof(int16_t), cudaMemcpyDeviceToDevice);
 
 	// matrix encoding adds an extra bit but 32-bit inputs cannot be matrixed b/c 33 is too many
 	// so enable 16-bit "shift off" and encode in 17-bit mode
@@ -350,85 +337,53 @@ int32_t ALACEncoder::EncodeStereo(BitBuffer * bitstream, void * d_ip, uint32_t s
 	
     int32_t		bestRes = mLastMixRes[channelIndex];
 
-	/*int n = numSamples / dilate;*/
-//	int n;
-	int32_t *d_u, *d_v;
-//	void *d_ip;
-	uint16_t *d_shiftUV;
-	int32_t *d_pcU, *d_pcV;
 	int16_t * d_coefsU, *d_coefsV;
 
-	cudaMalloc(&d_u, numSamples * sizeof(int32_t));
-	cudaMalloc(&d_v, numSamples * sizeof(int32_t));
-	cudaMalloc(&d_pcU, numSamples * sizeof(int32_t));
-	cudaMalloc(&d_pcV, numSamples * sizeof(int32_t));
-	cudaMalloc(&d_coefsU, numU * sizeof(int16_t));
-	cudaMalloc(&d_coefsV, numV * sizeof(int16_t));
+	cudaMalloc(&d_coefsU, 16 * sizeof(int16_t));
+	cudaMalloc(&d_coefsV, 16 * sizeof(int16_t));
 
-	cudaMemcpy(d_u, mMixBufferU, numSamples * sizeof(int32_t), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_v, mMixBufferV, numSamples * sizeof(int32_t), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_coefsU, coefsU[numU - 1], numU * sizeof(int16_t), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_coefsV, coefsV[numV - 1], numV * sizeof(int16_t), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_pcU, mPredictorU, numSamples  * sizeof(int32_t), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_pcV, mPredictorV, numSamples * sizeof(int32_t), cudaMemcpyHostToDevice);
-
-
-	switch (mBitDepth)
-	{
-		case 24:{
-			cudaMalloc(&d_shiftUV, 2 * (numSamples / dilate) * sizeof(uint16_t));
-			cudaMemcpy(d_shiftUV, mShiftBufferUV, 2 * (numSamples / dilate) * sizeof(uint16_t), cudaMemcpyHostToDevice);
-		}
-		case 32:{
-			cudaMalloc(&d_shiftUV, 2 * (numSamples / dilate) * sizeof(uint16_t));
-			cudaMemcpy(d_shiftUV, mShiftBufferUV, 2 * (numSamples / dilate) * sizeof(uint16_t), cudaMemcpyHostToDevice);
-		}
-	}
+	cudaMemcpy(d_coefsU, coefsU + (numU - 1) * 16, 16 * sizeof(int16_t), cudaMemcpyDeviceToDevice);
+	cudaMemcpy(d_coefsV, coefsV + (numV - 1) * 16, 16 * sizeof(int16_t), cudaMemcpyDeviceToDevice);
 
 
     for ( mixRes = 0; mixRes <= maxRes; mixRes++ )
     {
         // mix the stereo inputs
-
-
         switch ( mBitDepth )
         {
             case 16:{
-				mix16((int16_t *)d_ip, stride, d_u, d_v, numSamples / dilate, mixBits, mixRes);
+				mix16((int16_t *)d_ip, stride, mMixBufferU, mMixBufferV, numSamples / dilate, mixBits, mixRes);
 				break;
 			}
 			case 20:{
-				mix20((uint8_t *)d_ip, stride, d_u, d_v, numSamples / dilate, mixBits, mixRes);
+				mix20((uint8_t *)d_ip, stride, mMixBufferU, mMixBufferV, numSamples / dilate, mixBits, mixRes);
 				break;
 			}
 			case 24:{
 				// includes extraction of shifted-off bytes
-				mix24((uint8_t *)d_ip, stride, d_u, d_v, numSamples / dilate, mixBits, mixRes, d_shiftUV, bytesShifted);
+				mix24((uint8_t *)d_ip, stride, mMixBufferU, mMixBufferV, numSamples / dilate, mixBits, mixRes, mShiftBufferUV, bytesShifted);
 				break;
 			}
 			case 32:{
 				// includes extraction of shifted-off bytes
-				mix32((int32_t*)d_ip, stride, d_u, d_v, (numSamples / dilate), mixBits, mixRes, d_shiftUV, bytesShifted);
+				mix32((int32_t*)d_ip, stride, mMixBufferU, mMixBufferV, (numSamples / dilate), mixBits, mixRes, mShiftBufferUV, bytesShifted);
 				break;
 			}
         }
 
         BitBufferInit( &workBits, mWorkBuffer, mMaxOutputBytes );
-        
 
         // run the dynamic predictors
-		pc_block(d_u, d_pcU, numSamples / dilate, d_coefsU, numU, chanBits, DENSHIFT_DEFAULT);
-		pc_block(d_v, d_pcV, numSamples / dilate, d_coefsV, numV, chanBits, DENSHIFT_DEFAULT);
-
-
+		pc_block(mMixBufferU, mPredictorU, numSamples / dilate, d_coefsU, numU, chanBits, DENSHIFT_DEFAULT);
+		pc_block(mMixBufferV, mPredictorV, numSamples / dilate, d_coefsV, numV, chanBits, DENSHIFT_DEFAULT);
 
         // run the lossless compressor on each channel
         set_ag_params( &agParams, MB0, (pbFactor * PB0) / 4, KB0, numSamples/dilate, numSamples/dilate, MAX_RUN_DEFAULT );
-		status = dyn_comp(&agParams, d_pcU, &workBits, numSamples / dilate, chanBits, &bits1);
+		status = dyn_comp(&agParams, mPredictorU, &workBits, numSamples / dilate, chanBits, &bits1);
 		RequireNoErr( status, goto Exit; );
 
         set_ag_params( &agParams, MB0, (pbFactor * PB0) / 4, KB0, numSamples/dilate, numSamples/dilate, MAX_RUN_DEFAULT );
-		status = dyn_comp(&agParams, d_pcV, &workBits, numSamples / dilate, chanBits, &bits2);
+		status = dyn_comp(&agParams, mPredictorV, &workBits, numSamples / dilate, chanBits, &bits2);
         RequireNoErr( status, goto Exit; );
 
         // look for best match
@@ -439,58 +394,32 @@ int32_t ALACEncoder::EncodeStereo(BitBuffer * bitstream, void * d_ip, uint32_t s
         }
     }
 
-	switch (mBitDepth)
-	{
-		case 24:{
-			cudaMemcpy(mShiftBufferUV, d_shiftUV, 2 * (numSamples / dilate) * sizeof(uint16_t), cudaMemcpyDeviceToHost);
-		}
-		case 32:{
-			cudaMemcpy(mShiftBufferUV, d_shiftUV, 2 * (numSamples / dilate) * sizeof(uint16_t), cudaMemcpyDeviceToHost);
-		}
-	}
-
     mLastMixRes[channelIndex] = (int16_t)bestRes;
 
-	cudaMemcpy(coefsU[numU - 1], d_coefsU, numU * sizeof(int16_t), cudaMemcpyDeviceToHost);
-	cudaMemcpy(coefsV[numV - 1], d_coefsV, numV * sizeof(int16_t), cudaMemcpyDeviceToHost);
-
-	cudaFree(d_coefsU);
-	cudaFree(d_coefsV);
-
-
+	cudaMemcpy(coefsU + (numU - 1) * 16, d_coefsU, 16 * sizeof(int16_t), cudaMemcpyDeviceToDevice);
+	cudaMemcpy(coefsV + (numV - 1) * 16, d_coefsV, 16 * sizeof(int16_t), cudaMemcpyDeviceToDevice);
 
 	// mix the stereo inputs with the current best mixRes
 	mixRes = mLastMixRes[channelIndex];
 	switch ( mBitDepth )
 	{
 		case 16:{
-			mix16((int16_t*)d_ip, stride, d_u, d_v, numSamples, mixBits, mixRes);
+			mix16((int16_t*)d_ip, stride, mMixBufferU, mMixBufferV, numSamples, mixBits, mixRes);
 			break;
 		}
 		case 20:{
-			mix20((uint8_t*)d_ip, stride, d_u, d_v, numSamples, mixBits, mixRes);
+			mix20((uint8_t*)d_ip, stride, mMixBufferU, mMixBufferV, numSamples, mixBits, mixRes);
 			break;
 		}
 		case 24:{
-			// also extracts the shifted off bytes into the shift buffers
-			cudaMalloc(&d_shiftUV, 2 * numSamples * sizeof(uint16_t));
-			cudaMemcpy(d_shiftUV, mShiftBufferUV, 2 * numSamples * sizeof(uint16_t), cudaMemcpyHostToDevice);
-			mix24((uint8_t *)d_ip, stride, d_u, d_v, numSamples,
-				mixBits, mixRes, d_shiftUV, bytesShifted);
-			cudaMemcpy(mShiftBufferUV, d_shiftUV, 2 * numSamples * sizeof(uint16_t), cudaMemcpyDeviceToHost);
+			mix24((uint8_t *)d_ip, stride, mMixBufferU, mMixBufferV, numSamples, mixBits, mixRes, mShiftBufferUV, bytesShifted);
 			break;
 		}
 		case 32:{
-			// also extracts the shifted off bytes into the shift buffers
-			cudaMalloc(&d_shiftUV, 2 * numSamples * sizeof(uint16_t));
-			cudaMemcpy(d_shiftUV, mShiftBufferUV, 2 * numSamples * sizeof(uint16_t), cudaMemcpyHostToDevice);
-			mix32((int32_t*)d_ip, stride, d_u, d_v, numSamples, mixBits, mixRes, d_shiftUV, bytesShifted);
-			cudaMemcpy(mShiftBufferUV, d_shiftUV, 2 * numSamples * sizeof(uint16_t), cudaMemcpyDeviceToHost);
+			mix32((int32_t*)d_ip, stride, mMixBufferU, mMixBufferV, numSamples, mixBits, mixRes, mShiftBufferUV, bytesShifted);
 			break;
 		}
 	}
-
-	cudaFree(d_shiftUV);
 
 	// now it's time for the predictor coefficient search loop
 	numU = numV = kMinUV;
@@ -506,29 +435,22 @@ int32_t ALACEncoder::EncodeStereo(BitBuffer * bitstream, void * d_ip, uint32_t s
 
 
 		// run the predictor over the same data multiple times to help it converge
-
-		cudaMalloc(&d_coefsU, numUV * sizeof(int16_t));
-		cudaMalloc(&d_coefsV, numUV * sizeof(int16_t));
-		cudaMemcpy(d_coefsU, coefsU[numUV - 1], numUV * sizeof(int16_t), cudaMemcpyHostToDevice);
-		cudaMemcpy(d_coefsV, coefsV[numUV - 1], numUV * sizeof(int16_t), cudaMemcpyHostToDevice);
+		cudaMemcpy(d_coefsU, coefsU + (numUV - 1) * 16, 16 * sizeof(int16_t), cudaMemcpyDeviceToDevice);
+		cudaMemcpy(d_coefsV, coefsV + (numUV - 1) * 16, 16 * sizeof(int16_t), cudaMemcpyDeviceToDevice);
 
 		for ( uint32_t converge = 0; converge < 8; converge++ )
 		{
-			pc_block(d_u, d_pcU, numSamples / dilate, d_coefsU, numUV, chanBits, DENSHIFT_DEFAULT);
-			pc_block(d_v, d_pcV, numSamples / dilate, d_coefsV, numUV, chanBits, DENSHIFT_DEFAULT);
+			pc_block(mMixBufferU, mPredictorU, numSamples / dilate, d_coefsU, numUV, chanBits, DENSHIFT_DEFAULT);
+			pc_block(mMixBufferV, mPredictorV, numSamples / dilate, d_coefsV, numUV, chanBits, DENSHIFT_DEFAULT);
 		}
 
-		cudaMemcpy(coefsU[numUV - 1], d_coefsU, numUV * sizeof(int16_t), cudaMemcpyDeviceToHost);
-		cudaMemcpy(coefsV[numUV - 1], d_coefsV, numUV * sizeof(int16_t), cudaMemcpyDeviceToHost);
-
-		cudaFree(d_coefsU);
-		cudaFree(d_coefsV);
-
+		cudaMemcpy(coefsU + (numUV - 1) * 16, d_coefsU, 16 * sizeof(int16_t), cudaMemcpyDeviceToDevice);
+		cudaMemcpy(coefsV + (numUV - 1) * 16, d_coefsV, 16 * sizeof(int16_t), cudaMemcpyDeviceToDevice);
 
 		dilate = 8;
 
 		set_ag_params( &agParams, MB0, (pbFactor * PB0)/4, KB0, numSamples/dilate, numSamples/dilate, MAX_RUN_DEFAULT );
-		status = dyn_comp(&agParams, d_pcU, &workBits, numSamples / dilate, chanBits, &bits1);
+		status = dyn_comp(&agParams, mPredictorU, &workBits, numSamples / dilate, chanBits, &bits1);
 
 		if ( (bits1 * dilate + 16 * numUV) < minBits1 )
 		{
@@ -537,7 +459,7 @@ int32_t ALACEncoder::EncodeStereo(BitBuffer * bitstream, void * d_ip, uint32_t s
 		}
 
 		set_ag_params( &agParams, MB0, (pbFactor * PB0)/4, KB0, numSamples/dilate, numSamples/dilate, MAX_RUN_DEFAULT );
-		status = dyn_comp(&agParams, d_pcV, &workBits, numSamples / dilate, chanBits, &bits2);
+		status = dyn_comp(&agParams, mPredictorV, &workBits, numSamples / dilate, chanBits, &bits2);
 
 		if ( (bits2 * dilate + 16 * numUV) < minBits2 )
 		{
@@ -569,30 +491,26 @@ int32_t ALACEncoder::EncodeStereo(BitBuffer * bitstream, void * d_ip, uint32_t s
 		//Assert( (pbFactor < 8) && (numU < 32) );
 		//Assert( (pbFactor < 8) && (numV < 32) );
 
-		cudaMalloc(&d_coefsU, numU * sizeof(int16_t));
-		cudaMalloc(&d_coefsV, numV * sizeof(int16_t));
-		cudaMemcpy(d_coefsU, coefsU[numU - 1], numU * sizeof(int16_t), cudaMemcpyHostToDevice);
-		cudaMemcpy(d_coefsV, coefsV[numV - 1], numV * sizeof(int16_t), cudaMemcpyHostToDevice);
+		cudaMemcpy(b_coefsU, coefsU, 16 * 16 * sizeof(int16_t), cudaMemcpyDeviceToHost);
+		cudaMemcpy(b_coefsV, coefsV, 16 * 16 * sizeof(int16_t), cudaMemcpyDeviceToHost);
 
 		BitBufferWrite( bitstream, (mode << 4) | DENSHIFT_DEFAULT, 8 );
 		BitBufferWrite(bitstream, (pbFactor << 5) | numU, 8);
-		for ( index = 0; index < numU; index++ )
-			BitBufferWrite( bitstream, coefsU[numU - 1][index], 16 );
-
+		for (index = 0; index < numU; index++)
+			BitBufferWrite(bitstream, b_coefsU[numU - 1][index], 16);
+		
 		BitBufferWrite( bitstream, (mode << 4) | DENSHIFT_DEFAULT, 8 );
 		BitBufferWrite(bitstream, (pbFactor << 5) | numV, 8);
-		for ( index = 0; index < numV; index++ )
-			BitBufferWrite( bitstream, coefsV[numV - 1][index], 16 );
-
-		cudaMemcpy(coefsU[numU - 1], d_coefsU, numU * sizeof(int16_t), cudaMemcpyDeviceToHost);
-		cudaMemcpy(coefsV[numV - 1], d_coefsV, numV * sizeof(int16_t), cudaMemcpyDeviceToHost);
-
-		cudaFree(d_coefsU);
-		cudaFree(d_coefsV);
+		for (index = 0; index < numV; index++)
+			BitBufferWrite(bitstream, b_coefsV[numV - 1][index], 16);
+	
 
 		// if shift active, write the interleaved shift buffers
 		if ( bytesShifted != 0 )
 		{
+			uint16_t* uv = (uint16_t *)calloc(numSamples * 2 * sizeof(uint16_t), 1);
+			cudaMemcpy(uv, mShiftBufferUV, numSamples * 2 * sizeof(uint16_t), cudaMemcpyDeviceToHost);
+
 			uint32_t		bitShift = bytesShifted * 8;
 
 			//Assert( bitShift <= 16 );
@@ -600,50 +518,48 @@ int32_t ALACEncoder::EncodeStereo(BitBuffer * bitstream, void * d_ip, uint32_t s
 			{
 				uint32_t			shiftedVal;
 				
-				shiftedVal = ((uint32_t)mShiftBufferUV[index + 0] << bitShift) | (uint32_t)mShiftBufferUV[index + 1];
+				shiftedVal = ((uint32_t)uv[index + 0] << bitShift) | (uint32_t)uv[index + 1];
 				BitBufferWrite( bitstream, shiftedVal, bitShift * 2 );
 			}
+
+			free(uv);
 		}
 
+		cudaMemcpy(d_coefsU, coefsU + (numU - 1) * 16, 16 * sizeof(int16_t), cudaMemcpyDeviceToDevice);
+		cudaMemcpy(d_coefsV, coefsV + (numV - 1) * 16, 16 * sizeof(int16_t), cudaMemcpyDeviceToDevice);
 
 		// run the dynamic predictor and lossless compression for the "left" channel
 		// - note: to avoid allocating more buffers, we're mixing and matching between the available buffers instead
 		//		   of only using "U" buffers for the U-channel and "V" buffers for the V-channel
-
-		cudaMalloc(&d_coefsU, numU * sizeof(int16_t));
-		cudaMalloc(&d_coefsV, numV * sizeof(int16_t));
-		cudaMemcpy(d_coefsU, coefsU[numU - 1], numU * sizeof(int16_t), cudaMemcpyHostToDevice);
-		cudaMemcpy(d_coefsV, coefsV[numV - 1], numV * sizeof(int16_t), cudaMemcpyHostToDevice);
-
 		if ( mode == 0 )
 		{
-			pc_block(d_u, d_pcU, numSamples, d_coefsU, numU, chanBits, DENSHIFT_DEFAULT);
+			pc_block(mMixBufferU, mPredictorU, numSamples, d_coefsU, numU, chanBits, DENSHIFT_DEFAULT);
 		}
 		else
 		{
-			pc_block(d_u, d_pcV, numSamples, d_coefsU, numU, chanBits, DENSHIFT_DEFAULT);
-			pc_block(d_pcV, d_pcU, numSamples, nil, 31, chanBits, 0);
+			pc_block(mMixBufferU, mPredictorV, numSamples, d_coefsU, numU, chanBits, DENSHIFT_DEFAULT);
+			pc_block(mPredictorV, mPredictorU, numSamples, nil, 31, chanBits, 0);
 		}
 
 
 		set_ag_params( &agParams, MB0, (pbFactor * PB0) / 4, KB0, numSamples, numSamples, MAX_RUN_DEFAULT );
-		status = dyn_comp(&agParams, d_pcU, bitstream, numSamples, chanBits, &bits1);
+		status = dyn_comp(&agParams, mPredictorU, bitstream, numSamples, chanBits, &bits1);
 		RequireNoErr( status, goto Exit; );
 
 		// run the dynamic predictor and lossless compression for the "right" channel
 		if ( mode == 0 )
 		{
-			pc_block(d_v, d_pcV, numSamples, d_coefsV, numV, chanBits, DENSHIFT_DEFAULT);
+			pc_block(mMixBufferV, mPredictorV, numSamples, d_coefsV, numV, chanBits, DENSHIFT_DEFAULT);
 		}
 		else
 		{
-			pc_block(d_v, d_pcU, numSamples, d_coefsV, numV, chanBits, DENSHIFT_DEFAULT);
-			pc_block(d_pcU, d_pcV, numSamples, nil, 31, chanBits, 0);
+			pc_block(mMixBufferV, mPredictorU, numSamples, d_coefsV, numV, chanBits, DENSHIFT_DEFAULT);
+			pc_block(mPredictorU, mPredictorV, numSamples, nil, 31, chanBits, 0);
 		}
 
 
 		set_ag_params( &agParams, MB0, (pbFactor * PB0) / 4, KB0, numSamples, numSamples, MAX_RUN_DEFAULT );
-		status = dyn_comp(&agParams, d_pcV, bitstream, numSamples, chanBits, &bits2);
+		status = dyn_comp(&agParams, mPredictorV, bitstream, numSamples, chanBits, &bits2);
 		RequireNoErr( status, goto Exit; );
 
 
@@ -659,21 +575,15 @@ int32_t ALACEncoder::EncodeStereo(BitBuffer * bitstream, void * d_ip, uint32_t s
 		}
 	}
 
+	cudaMemcpy(coefsU + (numU - 1) * 16, d_coefsU, 16 * sizeof(int16_t), cudaMemcpyDeviceToDevice);
+	cudaMemcpy(coefsV + (numV - 1) * 16, d_coefsV, 16 * sizeof(int16_t), cudaMemcpyDeviceToDevice);
+	cudaMemcpy(mCoefsU + m, coefsU, 16 * 16 * sizeof(int16_t), cudaMemcpyDeviceToDevice);
+	cudaMemcpy(mCoefsV + m, coefsV, 16 * 16 * sizeof(int16_t), cudaMemcpyDeviceToDevice);
 
-
-
-	cudaMemcpy(mPredictorU, d_pcU, numSamples * sizeof(int32_t), cudaMemcpyDeviceToHost);
-	cudaMemcpy(mPredictorV, d_pcV, numSamples * sizeof(int32_t), cudaMemcpyDeviceToHost);
-	cudaMemcpy(mMixBufferU, d_u, numSamples * sizeof(int32_t), cudaMemcpyDeviceToHost);
-	cudaMemcpy(mMixBufferV, d_v, numSamples * sizeof(int32_t), cudaMemcpyDeviceToHost);
-	cudaMemcpy(coefsU[numU - 1], d_coefsU, numU * sizeof(int16_t), cudaMemcpyDeviceToHost);
-	cudaMemcpy(coefsV[numV - 1], d_coefsV, numV * sizeof(int16_t), cudaMemcpyDeviceToHost);
-
-	cudaFree(d_u);
-	cudaFree(d_v);
 	cudaFree(d_coefsU);
 	cudaFree(d_coefsV);
-
+	cudaFree(coefsU);
+	cudaFree(coefsV);
 
 //	printf("%d\t%d\t%d\t%d\t%d\t%d\t%d\n", mMixBufferU[0], mMixBufferV[0], ((int *)inputBuffer)[0], mPredictorU[0], mPredictorV[0], coefsU[numU - 1][0], coefsV[numV - 1][0]);
 
@@ -1567,16 +1477,17 @@ int32_t ALACEncoder::InitializeEncoder(AudioFormatDescription theOutputFormat)
 	mMaxOutputBytes = mFrameSize * mNumChannels * ((10 + kMaxSampleSize) / 8)  + 1;
 
 	// allocate mix buffers
-	mMixBufferU = (int32_t *) calloc( mFrameSize * sizeof(int32_t), 1 );
-	mMixBufferV = (int32_t *) calloc( mFrameSize * sizeof(int32_t), 1 );
+	cudaMalloc(&mMixBufferU, mFrameSize * sizeof(int32_t));
+	cudaMalloc(&mMixBufferV, mFrameSize * sizeof(int32_t));
 
 	// allocate dynamic predictor buffers
-	mPredictorU = (int32_t *) calloc( mFrameSize * sizeof(int32_t), 1 );
-	mPredictorV = (int32_t *) calloc( mFrameSize * sizeof(int32_t), 1 );
+
+	cudaMalloc(&mPredictorU, mFrameSize * sizeof(int32_t));
+	cudaMalloc(&mPredictorV, mFrameSize * sizeof(int32_t));
 	
 	// allocate combined shift buffer
-	mShiftBufferUV = (uint16_t *) calloc( mFrameSize * 2 * sizeof(uint16_t),1 );
-	
+	cudaMalloc(&mShiftBufferUV, mFrameSize * 2 * sizeof(uint16_t));
+
 	// allocate work buffer for search loop
 	mWorkBuffer = (uint8_t *) calloc( mMaxOutputBytes, 1 );
 
@@ -1587,44 +1498,13 @@ int32_t ALACEncoder::InitializeEncoder(AudioFormatDescription theOutputFormat)
 
 	status = ALAC_noErr;
 
+	b_coefsU = (SearchCoefs)calloc(16 * 16 * sizeof(int16_t), 1);
+	b_coefsV = (SearchCoefs)calloc(16 * 16 * sizeof(int16_t), 1);
 
-	
+	cudaMalloc(&mCoefsU, sizeof(int16_t) * 8 * 16 * 16);
+	cudaMalloc(&mCoefsV, sizeof(int16_t) * 8 * 16 * 16);
 
-	//call_kALACSearch(p1, p2, kALACMaxCoefs, mNumChannels, kALACMaxSearches);
-
-	// initialize coefs arrays once b/c retaining state across blocks actually improves the encode ratio
-	//printf("size of mCoefsU %d ", sizeof(mCoefsV[0][1]));
-	/*for ( int32_t channel = 0; channel < (int32_t)mNumChannels; channel++ )
-	{
-		for ( int32_t search = 0; search < kALACMaxSearches; search++ )
-		{
-			init_coefs( mCoefsU[channel][search], DENSHIFT_DEFAULT, kALACMaxCoefs );
-			init_coefs( mCoefsV[channel][search], DENSHIFT_DEFAULT, kALACMaxCoefs );
-		}
-	}*/
-	
-//	printf("mNumChannels %d & kALACMaxSearches %d \n", mNumChannels, kALACMaxSearches);
-
-	void *p1 = mCoefsU;
-	void *p2 = mCoefsV;
-
-	int16_t *d_mCoefsU, *d_mCoefsV;
-
-	cudaMalloc(&d_mCoefsU, sizeof(int16_t) * 8 * 16 * 16);
-	cudaMalloc(&d_mCoefsV, sizeof(int16_t) * 8 * 16 * 16);
-	
-	cudaMemcpy(d_mCoefsU, p1, sizeof(int16_t) * 8 * 16 * 16, cudaMemcpyHostToDevice);
-	cudaMemcpy(d_mCoefsV, p2, sizeof(int16_t) * 8 * 16 * 16, cudaMemcpyHostToDevice);
-
-	init_coefs(d_mCoefsU, d_mCoefsV, kALACMaxCoefs, (int32_t)mNumChannels, kALACMaxSearches);
-
-	cudaMemcpy(p1, d_mCoefsU, sizeof(int16_t) * 8 * 16 * 16, cudaMemcpyDeviceToHost);
-	cudaMemcpy(p2, d_mCoefsV, sizeof(int16_t) * 8 * 16 * 16, cudaMemcpyDeviceToHost);
-
-	cudaFree(d_mCoefsU);
-	cudaFree(d_mCoefsV);
-
-	//printf("size of mCoefsU %d ", sizeof(mCoefsV));
+	init_coefs(mCoefsU, mCoefsV, kALACMaxCoefs, (int32_t)mNumChannels, kALACMaxSearches);
 
 Exit:
 	return status;

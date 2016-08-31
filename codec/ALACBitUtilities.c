@@ -217,7 +217,6 @@ void BitBufferWrite( BitBuffer * bits, uint32_t bitValues, uint32_t numBits )
 	RequireActionSilent( numBits > 0, return; );
 
 	invBitIndex = 8 - bits->bitIndex;
-
 	while ( numBits > 0 )
 	{
 		uint32_t		tmp;
@@ -244,7 +243,6 @@ void BitBufferWrite( BitBuffer * bits, uint32_t bitValues, uint32_t numBits )
 			bits->cur++;
 		}
 	}
-
 	bits->bitIndex = 8 - invBitIndex;
 }
 
