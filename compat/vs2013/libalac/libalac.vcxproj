@@ -80,21 +80,20 @@
     <CudaCompile>
       <CodeGeneration>compute_50,sm_50</CodeGeneration>
       <GenerateRelocatableDeviceCode>true</GenerateRelocatableDeviceCode>
-      <CudaRuntime>Static</CudaRuntime>
     </CudaCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\..\..\codec\ag_dec.c" />
     <CudaCompile Include="..\..\..\codec\ag_enc.cu" />
     <ClCompile Include="..\..\..\codec\ALACBitUtilities.c" />
-    <ClCompile Include="..\..\..\codec\ALACDecoder.cpp" />
+    <CudaCompile Include="..\..\..\codec\ALACDecoder.cu" />
     <CudaCompile Include="..\..\..\codec\ALACEncoder.cu" />
     <ClCompile Include="..\..\..\codec\dp_dec.c" />
     <CudaCompile Include="..\..\..\codec\dp_enc.cu">
       <CodeGeneration Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">compute_20,sm_20</CodeGeneration>
     </CudaCompile>
     <ClCompile Include="..\..\..\codec\EndianPortable.c" />
-    <ClCompile Include="..\..\..\codec\matrix_dec.c" />
+    <CudaCompile Include="..\..\..\codec\matrix_dec.cu" />
     <CudaCompile Include="..\..\..\codec\matrix_enc.cu" />
   </ItemGroup>
   <ItemGroup>

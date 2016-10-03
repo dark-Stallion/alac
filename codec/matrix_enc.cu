@@ -70,7 +70,7 @@ R = L - v;
 
 __global__ void gpu_mix16_1(int16_t * ip, uint32_t stride, int32_t * u, int32_t * v, int32_t numSamples, int32_t m2, int32_t mixbits, int32_t mixres)
 {
-	int z = threadIdx.x + blockIdx.x * blockDim.x; 
+	int z = threadIdx.x + blockIdx.x * blockDim.x;
 	if (z < numSamples)
 	{
 		int32_t		l, r;
@@ -93,8 +93,14 @@ __global__ void gpu_mix16_2(int16_t * ip, uint32_t stride, int32_t * u, int32_t 
 	}
 }
 
-void mix16(int16_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numSamples, int32_t mixbits, int32_t mixres)
+__device__ void gpu_mix16(int16_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numSamples, int32_t mixbits, int32_t mixres)
 {
+
+	//	cudaEvent_t start, stop;
+	//	float ms;
+
+	//	cudaEventCreate(&start);
+	//	cudaEventCreate(&stop);
 
 	if (mixres != 0)
 	{
@@ -104,16 +110,73 @@ void mix16(int16_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numS
 		/* matrixed stereo */
 		m2 = mod - mixres;
 
+		//		cudaEventRecord(start, 0);
+
 		gpu_mix16_1 << < (numSamples + SIZE - 1) / SIZE, SIZE >> >(in, stride, u, v, numSamples, m2, mixbits, mixres);
 
-	
+		//		cudaEventRecord(stop, 0);
+		//		cudaEventSynchronize(stop);
 	}
 	else
 	{
 		/* Conventional separated stereo. */
-		gpu_mix16_2<<< (numSamples + SIZE - 1) / SIZE, SIZE >>>(in, stride, u, v, numSamples);
+
+		//		cudaEventRecord(start, 0);
+		gpu_mix16_2 << < (numSamples + SIZE - 1) / SIZE, SIZE >> >(in, stride, u, v, numSamples);
+
+		//		cudaEventRecord(stop, 0);
+		//		cudaEventSynchronize(stop);
 
 	}
+
+	//	cudaEventElapsedTime(&ms, start, stop);
+	//	cudaEventDestroy(start);
+	//	cudaEventDestroy(stop);
+
+	//	printf("GPU: %f ms\n", ms);
+}
+
+void mix16(int16_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numSamples, int32_t mixbits, int32_t mixres)
+{
+
+	//	cudaEvent_t start, stop;
+	//	float ms;
+
+	//	cudaEventCreate(&start);
+	//	cudaEventCreate(&stop);
+
+	if (mixres != 0)
+	{
+		int32_t		mod = 1 << mixbits;
+		int32_t		m2;
+
+		/* matrixed stereo */
+		m2 = mod - mixres;
+
+		//		cudaEventRecord(start, 0);
+
+		gpu_mix16_1 << < (numSamples + SIZE - 1) / SIZE, SIZE >> >(in, stride, u, v, numSamples, m2, mixbits, mixres);
+
+		//		cudaEventRecord(stop, 0);
+		//		cudaEventSynchronize(stop);
+	}
+	else
+	{
+		/* Conventional separated stereo. */
+
+		//		cudaEventRecord(start, 0);
+		gpu_mix16_2 << < (numSamples + SIZE - 1) / SIZE, SIZE >> >(in, stride, u, v, numSamples);
+
+		//		cudaEventRecord(stop, 0);
+		//		cudaEventSynchronize(stop);
+
+	}
+
+	//	cudaEventElapsedTime(&ms, start, stop);
+	//	cudaEventDestroy(start);
+	//	cudaEventDestroy(stop);
+
+	//	printf("GPU: %f ms\n", ms);
 }
 
 __global__ void gpu_mix20_1(uint8_t * ip, uint32_t stride, int32_t * u, int32_t * v, int32_t numSamples, int32_t mixres, int32_t m2, int32_t mixbits)
@@ -159,6 +222,56 @@ __global__ void gpu_mix20_2(uint8_t * ip, uint32_t stride, int32_t * u, int32_t 
 
 // 20-bit routines
 // - the 20 bits of data are left-justified in 3 bytes of storage but right-aligned for input/output predictor buffers
+
+__device__ void gpu_mix20(uint8_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numSamples, int32_t mixbits, int32_t mixres)
+{
+	printf("\nENTERS mix20\n");
+	return;
+
+	/*int32_t		l, r;
+	uint8_t *	ip = in;
+	int32_t			j;
+
+	printf("Enters mix20");
+
+	int32_t *d_u, *d_v;
+	uint8_t *d_ip;
+
+	cudaMalloc(&d_u, numSamples * sizeof(int32_t));
+	cudaMalloc(&d_v, numSamples * sizeof(int32_t));
+	cudaMalloc(&d_ip, stride * 3 * numSamples * sizeof(uint8_t));
+
+
+	cudaMemcpy(d_u, u, numSamples * sizeof(int32_t), cudaMemcpyHostToDevice);
+	cudaMemcpy(d_v, v, numSamples * sizeof(int32_t), cudaMemcpyHostToDevice);
+	cudaMemcpy(d_ip, ip, stride * 3 * numSamples * sizeof(uint8_t), cudaMemcpyHostToDevice);*/
+
+	if (mixres != 0)
+	{
+		/* matrixed stereo */
+		int32_t		mod = 1 << mixbits;
+		int32_t		m2 = mod - mixres;
+
+		gpu_mix20_1 << < (numSamples + SIZE - 1) / SIZE, SIZE >> >(in, stride, u, v, numSamples, mixres, m2, mixbits);
+
+	}
+	else
+	{
+
+		gpu_mix20_2 << < (numSamples + SIZE - 1) / SIZE, SIZE >> >(in, stride, u, v, numSamples);
+
+		/* Conventional separated stereo. */
+	}
+
+	/*cudaMemcpy(u, d_u, numSamples * sizeof(int32_t), cudaMemcpyDeviceToHost);
+	cudaMemcpy(v, d_v, numSamples * sizeof(int32_t), cudaMemcpyDeviceToHost);
+	cudaMemcpy(ip, d_ip, stride * 3 * numSamples * sizeof(uint8_t), cudaMemcpyDeviceToHost);
+
+	cudaFree(d_u);
+	cudaFree(d_v);
+	cudaFree(d_ip);*/
+
+}
 
 void mix20(uint8_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numSamples, int32_t mixbits, int32_t mixres)
 {
@@ -221,7 +334,7 @@ __global__ void gpu_mix24_1_1(uint8_t * ip, uint32_t stride, int32_t * u, int32_
 		int32_t		l, r;
 		int32_t k = z * 2;
 
-		
+
 		ip += 3 * z;
 		ip += (stride - 1) * 3 * z;
 		l = (int32_t)(((uint32_t)ip[HBYTE] << 16) | ((uint32_t)ip[MBYTE] << 8) | (uint32_t)ip[LBYTE]);
@@ -311,14 +424,15 @@ __global__ void gpu_mix24_2_2(uint8_t * ip, uint32_t stride, int32_t * u, int32_
 	}
 }
 
-void mix24(uint8_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numSamples,
+__device__ void gpu_mix24(uint8_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numSamples,
 	int32_t mixbits, int32_t mixres, uint16_t * shiftUV, int32_t bytesShifted)
 {
-//	printf("%d\t%d\t%d\t%d\n", *(uint8_t*)in, (uint8_t*)in, *((uint8_t*)in + 1), (uint8_t*)in + 1);
+	//	printf("%d\t%d\t%d\t%d\n", *(uint8_t*)in, (uint8_t*)in, *((uint8_t*)in + 1), (uint8_t*)in + 1);
 
 	uint8_t *	ip = in;
 	int32_t			shift = bytesShifted * 8;
 	uint32_t	mask = (1ul << shift) - 1;
+
 
 	if (mixres != 0)
 	{
@@ -347,7 +461,45 @@ void mix24(uint8_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numS
 			gpu_mix24_2_2 << < (numSamples + SIZE - 1) / SIZE, SIZE >> >(ip, stride, u, v, numSamples);
 		}
 	}
+}
 
+void mix24(uint8_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numSamples,
+	int32_t mixbits, int32_t mixres, uint16_t * shiftUV, int32_t bytesShifted)
+{
+	//	printf("%d\t%d\t%d\t%d\n", *(uint8_t*)in, (uint8_t*)in, *((uint8_t*)in + 1), (uint8_t*)in + 1);
+
+	uint8_t *	ip = in;
+	int32_t			shift = bytesShifted * 8;
+	uint32_t	mask = (1ul << shift) - 1;
+
+
+	if (mixres != 0)
+	{
+		/* matrixed stereo */
+		int32_t		mod = 1 << mixbits;
+		int32_t		m2 = mod - mixres;
+
+		if (bytesShifted != 0)
+		{
+			gpu_mix24_1_1 << < (numSamples + SIZE - 1) / SIZE, SIZE >> >(ip, stride, u, v, numSamples, shiftUV, mixres, mask, m2, mixbits, shift);
+		}
+		else
+		{
+			gpu_mix24_1_2 << < (numSamples + SIZE - 1) / SIZE, SIZE >> >(ip, stride, u, v, numSamples, mixres, m2, mixbits);
+		}
+	}
+	else
+	{
+		/* Conventional separated stereo. */
+		if (bytesShifted != 0)
+		{
+			gpu_mix24_2_1 << < (numSamples + SIZE - 1) / SIZE, SIZE >> >(ip, stride, u, v, numSamples, shiftUV, mask, shift);
+		}
+		else
+		{
+			gpu_mix24_2_2 << < (numSamples + SIZE - 1) / SIZE, SIZE >> >(ip, stride, u, v, numSamples);
+		}
+	}
 }
 
 // 32-bit routines
@@ -413,6 +565,40 @@ __global__ void gpu_mix32_2_2(int32_t * ip, uint32_t stride, int32_t * u, int32_
 		u[z] = l;
 		v[z] = r;
 	}
+}
+
+__device__ void gpu_mix32(int32_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numSamples,
+	int32_t mixbits, int32_t mixres, uint16_t * shiftUV, int32_t bytesShifted)
+{
+	int32_t	*	ip = in;
+	int32_t			shift = bytesShifted * 8;
+	uint32_t	mask = (1ul << shift) - 1;
+
+	if (mixres != 0)
+	{
+		int32_t		mod = 1 << mixbits;
+		int32_t		m2;
+
+		//Assert( bytesShifted != 0 );
+
+		/* matrixed stereo with shift */
+		m2 = mod - mixres;
+
+		gpu_mix32_1 << < (numSamples + SIZE - 1) / SIZE, SIZE >> >(ip, stride, u, v, numSamples, shiftUV, mixres, mask, m2, mixbits, shift);
+	}
+	else
+	{
+		if (bytesShifted == 0)
+		{
+			/* de-interleaving w/o shift */
+			gpu_mix32_2_1 << < (numSamples + SIZE - 1) / SIZE, SIZE >> >(ip, stride, u, v, numSamples);
+		}
+		else
+		{
+			gpu_mix32_2_2 << < (numSamples + SIZE - 1) / SIZE, SIZE >> >(ip, stride, u, v, numSamples, shiftUV, mask, shift);
+		}
+	}
+
 }
 
 void mix32(int32_t * in, uint32_t stride, int32_t * u, int32_t * v, int32_t numSamples,

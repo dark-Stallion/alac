@@ -383,5 +383,10 @@ E:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include\crtdefs.h
 E:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include\swprintf.inl
 E:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include\stdint.h
 E:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include\crtdefs.h
-c:\users\rafid\documents\github\alac\codec\ALACAudioTypes.h
-c:\users\rafid\documents\github\alac\convert-utility\CAFFileALAC.h
+c:\users\rafid\desktop\alac -complete copy\codec\ALACAudioTypes.h
+C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v7.5\include\cuda.h
+C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v7.5\include\cuda_runtime.h
+C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v7.5\include\device_launch_parameters.h
+C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v7.5\include\cuda_profiler_api.h
+c:\program files\nvidia gpu computing toolkit\cuda\v7.5\include\driver_types.h
+c:\users\rafid\desktop\alac -complete copy\convert-utility\CAFFileALAC.h

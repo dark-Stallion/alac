@@ -36,7 +36,7 @@
 #include <cuda_runtime.h>
 #include "device_launch_parameters.h"
 
-#define SIZE 1024
+#define SIZE 512
 
 #if __GNUC__
 #define ALWAYS_INLINE		__attribute__((always_inline))
@@ -52,55 +52,45 @@
 #define LOOP_ALIGN
 #endif
 
-__global__ void dynamic_init_coefs(int16_t * mCoefsU, int16_t * mCoefsV, int g){
-	int index = threadIdx.x;
-
-	if (index > 2)
-	{
-		mCoefsU[index + g] = 0;
-		mCoefsV[index + g] = 0;
-	}
-}
-__global__ void gpu_init_coefs(int16_t * mCoefsU, int16_t * mCoefsV, int32_t kALACMaxCoefs)
+__global__ void gpu_init_coefs(int16_t * coefs, int32_t numPairs)
 {
-	int x = blockIdx.x;
-	int y = threadIdx.x;
-
-	int index = x * 16 * 16 + y * 16;
-	int32_t		k;
-	int32_t		den = 1 << DENSHIFT_DEFAULT;
-
-	mCoefsU[index + 0] = (AINIT * den) >> 4;
-	mCoefsU[index + 1] = (BINIT * den) >> 4;
-	mCoefsU[index + 2] = (CINIT * den) >> 4;
-
-	mCoefsV[index + 0] = (AINIT * den) >> 4;
-	mCoefsV[index + 1] = (BINIT * den) >> 4;
-	mCoefsV[index + 2] = (CINIT * den) >> 4;
-
-	dynamic_init_coefs << <1, kALACMaxCoefs >> >(mCoefsU, mCoefsV, index);
-
-	cudaDeviceSynchronize();
-
-	/*for (k = 3; k < kALACMaxCoefs; k++)
-	{
-	mCoefsU[index + k] = 0;
-	mCoefsV[index + k] = 0;
-	}*/
+	int i = threadIdx.x;
+	if (i > 2 && i < numPairs)
+		coefs[i] = 0;
 }
 
-void init_coefs(int16_t * mCoefsU, int16_t * mCoefsV, int32_t kALACMaxCoefs, int32_t mNumChannels, int32_t kALACMaxSearches)
-{
-	gpu_init_coefs << < mNumChannels, kALACMaxSearches >> >(mCoefsU, mCoefsV, kALACMaxCoefs);
-}
+//void init_coefs( int16_t * coefs, uint32_t denshift, int32_t numPairs )
+//{
+//	int32_t		k;
+//	int32_t		den = 1 << denshift;
+//
+//	coefs[0] = (AINIT * den) >> 4;
+//	coefs[1] = (BINIT * den) >> 4;
+//	coefs[2] = (CINIT * den) >> 4;
+//
+///*	int16_t *d_coefs;
+//
+//	cudaMalloc(&d_coefs, numPairs * 4);
+//
+//	cudaMemcpy(d_coefs, coefs, numPairs * 4, cudaMemcpyHostToDevice);
+//
+//	gpu_init_coefs<<<1, numPairs>>>(d_coefs, numPairs);
+//
+//	cudaMemcpy(coefs, d_coefs, numPairs * 4, cudaMemcpyDeviceToHost);
+//
+//	cudaFree(d_coefs);*/
+//
+//	for ( k = 3; k < numPairs; k++ )
+//		coefs[k]  = 0;
+//}
 
-void copy_coefs( int16_t * srcCoefs, int16_t * dstCoefs, int32_t numPairs )
-{
-	int32_t k;
-//	printf("\ncopy_coefs %d\n", numPairs);
-	for ( k = 0; k < numPairs; k++ )
-		dstCoefs[k] = srcCoefs[k];
-}
+//void copy_coefs( int16_t * srcCoefs, int16_t * dstCoefs, int32_t numPairs )
+//{
+//	int32_t k;
+////	printf("\ncopy_coefs %d\n", numPairs);
+//	for ( k = 0; k < numPairs; k++ )
+//		dstCoefs[k] = srcCoefs[k];
+//}
 
 static inline int32_t ALWAYS_INLINE sign_of_int( int32_t i )		// <------- use in parallel method
 {
@@ -110,309 +100,10 @@ static inline int32_t ALWAYS_INLINE sign_of_int( int32_t i )		// <------- use in
     return negishift | (i >> 31);
 }
 
-__global__ void gpu_pc_block_4(int32_t *in, int32_t *pc1, int32_t lim, int32_t num, int32_t sum1, int32_t denhalf,
-	uint32_t denshift, int16_t * coefs, int32_t del, int32_t sg, int32_t del0, uint32_t chanshift, int32_t sgn, int g, int limit)
+void pc_block(int32_t * in, int32_t * pc1, int32_t num, int16_t * coefs, int32_t numactive, uint32_t chanbits, uint32_t denshift)
 {
-
-	int z = threadIdx.x + g * blockDim.x; 
-
-//	if (z == lim){
-//		printf("%d\t%d\t%d\t%d\n", coefs[0], coefs[1], coefs[2], coefs[3]);
-//	}
-
-	if (z >= lim && z < num)
-	{
-		LOOP_ALIGN
-
-		__shared__ int s1[1024];
-		__shared__ int s2[1024];
-		__shared__ int s3[1024];
-		__shared__ int s4[1024];
-		__shared__ int s5[1024];
-
-		s5[threadIdx.x] = in[z - lim];
-		int32_t * pin = in + z - 1;
-
-		s1[threadIdx.x] = s5[threadIdx.x] - pin[0];
-		s2[threadIdx.x] = s5[threadIdx.x] - pin[-1];
-		s3[threadIdx.x] = s5[threadIdx.x] - pin[-2];
-		s4[threadIdx.x] = s5[threadIdx.x] - pin[-3];
-
-		__syncthreads();
-
-		if (threadIdx.x == lim){
-
-			register int16_t a0, a1, a2, a3;
-
-			a0 = coefs[0];
-			a1 = coefs[1];
-			a2 = coefs[2];
-			a3 = coefs[3];
-
-			int n;
-			if (g != 0)
-				lim = 0;
-			if (limit < SIZE)
-				n = limit;
-			else
-				n = SIZE;
-
-			for (int j = lim; j < n; j++){
-				int index = j + g * blockDim.x;
-				sum1 = (denhalf - a0 * s1[j] - a1 * s2[j] - a2 * s3[j] - a3 * s4[j]) >> denshift;
-				del = in[index] - s5[j] - sum1;
-				del = (del << chanshift) >> chanshift;
-				pc1[index] = del;
-				del0 = del;
-				sg = (del < 0) ? -1 : (del>0) ? 1 : 0;
-				if (sg > 0)
-				{
-					sgn = (s4[j] < 0) ? -1 : (s4[j]>0) ? 1 : 0;
-					a3 -= sgn;
-					del0 -= (4 - 3) * ((sgn * s4[j]) >> denshift);
-					if (del0 <= 0)
-						continue;
-
-					sgn = (s3[j] < 0) ? -1 : (s3[j]>0) ? 1 : 0;
-					a2 -= sgn;
-					del0 -= (4 - 2) * ((sgn * s3[j]) >> denshift);
-					if (del0 <= 0)
-						continue;
-
-					sgn = (s2[j] < 0) ? -1 : (s2[j]>0) ? 1 : 0;
-					a1 -= sgn;
-					del0 -= (4 - 1) * ((sgn * s2[j]) >> denshift);
-					if (del0 <= 0)
-						continue;
-					
-					sgn = (s1[j] < 0) ? -1 : (s1[j]>0) ? 1 : 0;
-					a0 -= sgn;
-				}
-				else if (sg < 0)
-				{
-					// note: to avoid unnecessary negations, we flip the value of "sgn"
-					sgn = -((s4[j] < 0) ? -1 : (s4[j]>0) ? 1 : 0);
-					a3 -= sgn;
-					del0 -= (4 - 3) * ((sgn * s4[j]) >> denshift);
-					if (del0 >= 0)
-						continue;
-
-					sgn = -((s3[j] < 0) ? -1 : (s3[j]>0) ? 1 : 0);
-					a2 -= sgn;
-					del0 -= (4 - 2) * ((sgn * s3[j]) >> denshift);
-					if (del0 >= 0)
-						continue;
-
-					sgn = -((s2[j] < 0) ? -1 : (s2[j]>0) ? 1 : 0);
-					a1 -= sgn;
-					del0 -= (4 - 1) * ((sgn * s2[j]) >> denshift);
-					if (del0 >= 0)
-						continue;
-
-					sgn = (s1[j] < 0) ? -1 : (s1[j]>0) ? 1 : 0;
-					a0 += sgn;
-				}
-			}
-			coefs[0] = a0;
-			coefs[1] = a1;
-			coefs[2] = a2;
-			coefs[3] = a3;
-		}
-	}
-//	if (z == lim){
-//		printf("%d\t%d\t%d\t%d\n\n", coefs[0], coefs[1], coefs[2], coefs[3]);
-//	}
-}
-
-__global__ void gpu_pc_block_8(int32_t *in, int32_t *pc1, int32_t lim, int32_t num, int32_t sum1, int32_t denhalf,
-	uint32_t denshift, int16_t * coefs, int32_t del, int32_t sg, int32_t del0, uint32_t chanshift, int32_t sgn, int g, int limit)
-{
-
-	int z = threadIdx.x + g * blockDim.x;
-	if (z >= lim && z < num)
-	{
-		LOOP_ALIGN
-
-		__shared__ int32_t s1[1024];
-		__shared__ int32_t s2[1024];
-		__shared__ int32_t s3[1024];
-		__shared__ int32_t s4[1024];
-		__shared__ int32_t s5[1024];
-		__shared__ int32_t s6[1024];
-		__shared__ int32_t s7[1024];
-		__shared__ int32_t s8[1024];
-		__shared__ int32_t s9[1024];
-
-		s9[threadIdx.x] = in[z - lim];
-		int32_t * pin = in + z - 1;
-
-		s1[threadIdx.x] = s9[threadIdx.x] - (*(pin));
-		s2[threadIdx.x] = s9[threadIdx.x] - (*(pin - 1));
-		s3[threadIdx.x] = s9[threadIdx.x] - (*(pin - 2));
-		s4[threadIdx.x] = s9[threadIdx.x] - (*(pin - 3));
-		s5[threadIdx.x] = s9[threadIdx.x] - (*(pin - 4));
-		s6[threadIdx.x] = s9[threadIdx.x] - (*(pin - 5));
-		s7[threadIdx.x] = s9[threadIdx.x] - (*(pin - 6));
-		s8[threadIdx.x] = s9[threadIdx.x] - (*(pin - 7));
-
-		__syncthreads();
-
-		if (threadIdx.x == lim){
-
-			register int16_t a0, a1, a2, a3, a4, a5, a6, a7;
-
-
-			a0 = coefs[0];
-			a1 = coefs[1];
-			a2 = coefs[2];
-			a3 = coefs[3];
-			a4 = coefs[4];
-			a5 = coefs[5];
-			a6 = coefs[6];
-			a7 = coefs[7];
-
-//			printf("%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n",coefs[0], coefs[1],
-//				coefs[2], coefs[3], coefs[4], coefs[5], coefs[6], coefs[7]);
-			
-
-			int n;
-			if (g != 0)
-				lim = 0;
-			if (limit < SIZE)
-				n = limit;
-			else
-				n = SIZE;
-
-			for (int j = lim; j < n; j++){
-
-				int index = j + g * blockDim.x;
-
-				sum1 = (denhalf - a0 * s1[j] - a1 * s2[j] - a2 * s3[j] - a3 * s4[j]
-					- a4 * s5[j] - a5 * s6[j] - a6 * s7[j] - a7 * s8[j]) >> denshift;
-
-				del = in[index] - s9[j] - sum1;
-				del = (del << chanshift) >> chanshift;
-				pc1[index] = del;
-				del0 = del;
-
-				sg = (del < 0) ? -1 : (del>0) ? 1 : 0;
-				if (sg > 0)
-				{
-					sgn = (s8[j] < 0) ? -1 : (s8[j]>0) ? 1 : 0;
-					a7 -= sgn;
-					del0 -= 1 * ((sgn * s8[j]) >> denshift);
-					if (del0 <= 0)
-						continue;
-
-					sgn = (s7[j] < 0) ? -1 : (s7[j]>0) ? 1 : 0;
-					a6 -= sgn;
-					del0 -= 2 * ((sgn * s7[j]) >> denshift);
-					if (del0 <= 0)
-						continue;
-
-					sgn = (s6[j] < 0) ? -1 : (s6[j]>0) ? 1 : 0;
-					a5 -= sgn;
-					del0 -= 3 * ((sgn * s6[j]) >> denshift);
-					if (del0 <= 0)
-						continue;
-
-					sgn = (s5[j] < 0) ? -1 : (s5[j]>0) ? 1 : 0;
-					a4 -= sgn;
-					del0 -= 4 * ((sgn * s5[j]) >> denshift);
-					if (del0 <= 0)
-						continue;
-
-					sgn = (s4[j] < 0) ? -1 : (s4[j]>0) ? 1 : 0;
-					a3 -= sgn;
-					del0 -= 5 * ((sgn * s4[j]) >> denshift);
-					if (del0 <= 0)
-						continue;
-
-					sgn = (s3[j] < 0) ? -1 : (s3[j]>0) ? 1 : 0;
-					a2 -= sgn;
-					del0 -= 6 * ((sgn * s3[j]) >> denshift);
-					if (del0 <= 0)
-						continue;
-
-					sgn = (s2[j] < 0) ? -1 : (s2[j]>0) ? 1 : 0;
-					a1 -= sgn;
-					del0 -= 7 * ((sgn * s2[j]) >> denshift);
-					if (del0 <= 0)
-						continue;
-
-					a0 -= (s1[j] < 0) ? -1 : (s1[j]>0) ? 1 : 0;
-				}
-				else if (sg < 0)
-				{
-					// note: to avoid unnecessary negations, we flip the value of "sgn"
-					sgn = -((s8[j] < 0) ? -1 : (s8[j]>0) ? 1 : 0);
-					a7 -= sgn;
-					del0 -= 1 * ((sgn * s8[j]) >> denshift);
-					if (del0 >= 0)
-						continue;
-
-					sgn = -((s7[j] < 0) ? -1 : (s7[j]>0) ? 1 : 0);
-					a6 -= sgn;
-					del0 -= 2 * ((sgn * s7[j]) >> denshift);
-					if (del0 >= 0)
-						continue;
-
-					sgn = -((s6[j] < 0) ? -1 : (s6[j]>0) ? 1 : 0);
-					a5 -= sgn;
-					del0 -= 3 * ((sgn * s6[j]) >> denshift);
-					if (del0 >= 0)
-						continue;
-
-					sgn = -((s5[j] < 0) ? -1 : (s5[j]>0) ? 1 : 0);
-					a4 -= sgn;
-					del0 -= 4 * ((sgn * s5[j]) >> denshift);
-					if (del0 >= 0)
-						continue;
-
-					sgn = -((s4[j] < 0) ? -1 : (s4[j]>0) ? 1 : 0);
-					a3 -= sgn;
-					del0 -= 5 * ((sgn * s4[j]) >> denshift);
-					if (del0 >= 0)
-						continue;
-
-					sgn = -((s3[j] < 0) ? -1 : (s3[j]>0) ? 1 : 0);
-					a2 -= sgn;
-					del0 -= 6 * ((sgn * s3[j]) >> denshift);
-					if (del0 >= 0)
-						continue;
-
-					sgn = -((s2[j] < 0) ? -1 : (s2[j]>0) ? 1 : 0);
-					a1 -= sgn;
-					del0 -= 7 * ((sgn * s2[j]) >> denshift);
-					if (del0 >= 0)
-						continue;
-
-					a0 += (s1[j] < 0) ? -1 : (s1[j]>0) ? 1 : 0;
-				}
-			}
-
-			coefs[0] = a0;
-			coefs[1] = a1;
-			coefs[2] = a2;
-			coefs[3] = a3;
-			coefs[4] = a4;
-			coefs[5] = a5;
-			coefs[6] = a6;
-			coefs[7] = a7;
-
-//			printf("%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n", coefs[0], coefs[1],
-//				coefs[2], coefs[3], coefs[4], coefs[5], coefs[6], coefs[7]);
-		}
-	}
-}
-
-__global__ void gpu_pc_block(int32_t * in, int32_t * pc1, int32_t num, int16_t * coefs, int32_t numactive, uint32_t chanbits, uint32_t denshift)
-{
-
-//	printf("%d\t%d\t%d\t%d\n", coefs[0], coefs[1], coefs[2], coefs[3]);
-
-	/*register int16_t	a0, a1, a2, a3;
-	register int32_t	b0, b1, b2, b3;*/		//<-----used in parallel
+	register int16_t	a0, a1, a2, a3;
+	register int32_t	b0, b1, b2, b3;		//<-----used in parallel
 	int32_t					j, k, lim;
 	int32_t *			pin;		//<-----used in parallel
 	int32_t				sum1, dd;
@@ -432,6 +123,7 @@ __global__ void gpu_pc_block(int32_t * in, int32_t * pc1, int32_t num, int16_t *
 	}
 	if ( numactive == 31 )
 	{
+//		printf("\npc_block (numactive == 31) %d\n", num);
 		// short-circuit if numactive == 31
 		for( j = 1; j < num; j++ )
 		{
@@ -440,6 +132,7 @@ __global__ void gpu_pc_block(int32_t * in, int32_t * pc1, int32_t num, int16_t *
 		}
 		return;
 	}
+//	printf("\npc_block %d\n", numactive);
 	for ( j = 1; j <= numactive; j++ )
 	{
 		del = in[j] - in[j-1];
@@ -450,31 +143,273 @@ __global__ void gpu_pc_block(int32_t * in, int32_t * pc1, int32_t num, int16_t *
 
 	if ( numactive == 4 )
 	{
-//		printf("%d\t%d\t%d\t%d\n", coefs[0], coefs[1], coefs[2], coefs[3]);
-		int n = num;
-		for (int i = 0; i < (num + SIZE - 1) / SIZE; i++){
-			gpu_pc_block_4 << <1, SIZE >> >(in, pc1, lim, num, sum1, denhalf, denshift, coefs, del, sg, del0, chanshift, sgn, i, n);
-			n -= 1024;
+		// optimization for numactive == 4
+		a0 = coefs[0];
+		a1 = coefs[1];
+		a2 = coefs[2];
+		a3 = coefs[3];
+////		printf("\npc_block (numactive == 4) %d %d\n", lim, num);
+//
+//
+//		int32_t *d_pin, *d_in, *d_pc1;
+//		int16_t	*d_a0, *d_a1, *d_a2, *d_a3;
+//
+//		cudaMalloc(&d_pin, sizeof(int32_t));
+//		cudaMalloc(&d_in, num * sizeof(int32_t));
+//		cudaMalloc(&d_pc1, num * sizeof(int32_t));
+//
+//		cudaMalloc((void**)&d_a0, sizeof(int16_t));
+//		cudaMalloc((void**)&d_a1, sizeof(int16_t));
+//		cudaMalloc((void**)&d_a2, sizeof(int16_t));
+//		cudaMalloc((void**)&d_a3, sizeof(int16_t));
+//
+//		cudaMemcpy(d_in, in, num * sizeof(int32_t), cudaMemcpyHostToDevice);
+//		cudaMemcpy(d_pc1, pc1, num * sizeof(int32_t), cudaMemcpyHostToDevice);
+//
+//		cudaMemcpy(d_a0, &a0, sizeof(int16_t), cudaMemcpyHostToDevice);
+//		cudaMemcpy(d_a1, &a1, sizeof(int16_t), cudaMemcpyHostToDevice);
+//		cudaMemcpy(d_a2, &a2, sizeof(int16_t), cudaMemcpyHostToDevice);
+//		cudaMemcpy(d_a3, &a3, sizeof(int16_t), cudaMemcpyHostToDevice);
+//
+//		gpu_pc_block<<<(num + SIZE - 1) / SIZE, SIZE >>>(d_pin, d_in, d_pc1, lim, num, top, b0, b1, b2, b3, sum1, denhalf, denshift,
+//			d_a0, d_a1, d_a2, d_a3, del, sg, del0, chanshift, sgn);
+
+		for ( j = lim; j < num; j++ )			// <---------------------- make parallel
+		{
+//			LOOP_ALIGN
+
+			top = in[j - lim];
+			pin = in + j - 1;
+
+			b0 = top - pin[0];
+			b1 = top - pin[-1];
+			b2 = top - pin[-2];
+			b3 = top - pin[-3];
+
+			sum1 = (denhalf - a0 * b0 - a1 * b1 - a2 * b2 - a3 * b3) >> denshift;
+
+			del = in[j] - top - sum1;
+			del = (del << chanshift) >> chanshift;
+			pc1[j] = del;	     
+			del0 = del;
+
+			sg = sign_of_int(del);
+			if ( sg > 0 )
+			{
+				sgn = sign_of_int( b3 );
+				a3 -= sgn;
+				del0 -= (4 - 3) * ((sgn * b3) >> denshift);
+				if ( del0 <= 0 )
+					continue;
+				
+				sgn = sign_of_int( b2 );
+				a2 -= sgn;
+				del0 -= (4 - 2) * ((sgn * b2) >> denshift);
+				if ( del0 <= 0 )
+					continue;
+				
+				sgn = sign_of_int( b1 );
+				a1 -= sgn;
+				del0 -= (4 - 1) * ((sgn * b1) >> denshift);
+				if ( del0 <= 0 )
+					continue;
+
+				a0 -= sign_of_int( b0 );
+			}
+			else if ( sg < 0 )
+			{
+				// note: to avoid unnecessary negations, we flip the value of "sgn"
+				sgn = -sign_of_int( b3 );
+				a3 -= sgn;
+				del0 -= (4 - 3) * ((sgn * b3) >> denshift);
+				if ( del0 >= 0 )
+					continue;
+				
+				sgn = -sign_of_int( b2 );
+				a2 -= sgn;
+				del0 -= (4 - 2) * ((sgn * b2) >> denshift);
+				if ( del0 >= 0 )
+					continue;
+				
+				sgn = -sign_of_int( b1 );
+				a1 -= sgn;
+				del0 -= (4 - 1) * ((sgn * b1) >> denshift);
+				if ( del0 >= 0 )
+					continue;
+
+				a0 += sign_of_int( b0 );
+			}
 		}
-//		printf("%d\t%d\t%d\t%d\n\n", coefs[0], coefs[1], coefs[2], coefs[3]);
+
+		/*cudaMemcpy(&a0, d_a0, sizeof(int16_t), cudaMemcpyDeviceToHost);
+		cudaMemcpy(&a1, d_a1, sizeof(int16_t), cudaMemcpyDeviceToHost);
+		cudaMemcpy(&a2, d_a2, sizeof(int16_t), cudaMemcpyDeviceToHost);
+		cudaMemcpy(&a3, d_a3, sizeof(int16_t), cudaMemcpyDeviceToHost);
+
+		cudaFree(d_pin);
+		cudaFree(d_in);
+		cudaFree(d_pc1);
+
+		cudaFree(d_a0);
+		cudaFree(d_a1);
+		cudaFree(d_a2);
+		cudaFree(d_a3);*/
+
+		coefs[0] = a0;
+		coefs[1] = a1;
+		coefs[2] = a2;
+		coefs[3] = a3;
 	}
 	else if ( numactive == 8 )
 	{
-//		printf("%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n", coefs[0], coefs[1], coefs[2], coefs[3], coefs[4], coefs[5], coefs[6], coefs[7]);
-		int n = num;
-		for (int i = 0; i < (num + SIZE - 1) / SIZE; i++){
-			gpu_pc_block_8 << <1, SIZE >> >(in, pc1, lim, num, sum1, denhalf, denshift, coefs, del, sg, del0, chanshift, sgn, i, n);
-			n -= 1024;
-		}
-//		printf("%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n\n", coefs[0], coefs[1], coefs[2], coefs[3], coefs[4], coefs[5], coefs[6], coefs[7]);
+		// optimization for numactive == 8
+		register int16_t	a4, a5, a6, a7;
+		register int32_t	b4, b5, b6, b7;
 
+		a0 = coefs[0];
+		a1 = coefs[1];
+		a2 = coefs[2];
+		a3 = coefs[3];
+		a4 = coefs[4];
+		a5 = coefs[5];
+		a6 = coefs[6];
+		a7 = coefs[7];
+//		printf("\npc_block (numactive == 8) %d %d\n", lim, num);
+		for ( j = lim; j < num; j++ )			// <---------------------- make parallel
+		{
+			LOOP_ALIGN
+
+			top = in[j - lim];
+			pin = in + j - 1;
+
+			b0 = top - (*pin--);
+			b1 = top - (*pin--);
+			b2 = top - (*pin--);
+			b3 = top - (*pin--);
+			b4 = top - (*pin--);
+			b5 = top - (*pin--);
+			b6 = top - (*pin--);
+			b7 = top - (*pin);
+			pin += 8;
+
+			sum1 = (denhalf - a0 * b0 - a1 * b1 - a2 * b2 - a3 * b3
+					- a4 * b4 - a5 * b5 - a6 * b6 - a7 * b7) >> denshift;
+
+			del = in[j] - top - sum1;
+			del = (del << chanshift) >> chanshift;
+			pc1[j] = del;	     
+			del0 = del;
+
+			sg = sign_of_int(del);
+			if ( sg > 0 )
+			{
+				sgn = sign_of_int( b7 );
+				a7 -= sgn;
+				del0 -= 1 * ((sgn * b7) >> denshift);
+				if ( del0 <= 0 )
+					continue;
+				
+				sgn = sign_of_int( b6 );
+				a6 -= sgn;
+				del0 -= 2 * ((sgn * b6) >> denshift);
+				if ( del0 <= 0 )
+					continue;
+				
+				sgn = sign_of_int( b5 );
+				a5 -= sgn;
+				del0 -= 3 * ((sgn * b5) >> denshift);
+				if ( del0 <= 0 )
+					continue;
+
+				sgn = sign_of_int( b4 );
+				a4 -= sgn;
+				del0 -= 4 * ((sgn * b4) >> denshift);
+				if ( del0 <= 0 )
+					continue;
+				
+				sgn = sign_of_int( b3 );
+				a3 -= sgn;
+				del0 -= 5 * ((sgn * b3) >> denshift);
+				if ( del0 <= 0 )
+					continue;
+				
+				sgn = sign_of_int( b2 );
+				a2 -= sgn;
+				del0 -= 6 * ((sgn * b2) >> denshift);
+				if ( del0 <= 0 )
+					continue;
+				
+				sgn = sign_of_int( b1 );
+				a1 -= sgn;
+				del0 -= 7 * ((sgn * b1) >> denshift);
+				if ( del0 <= 0 )
+					continue;
+
+				a0 -= sign_of_int( b0 );
+			}
+			else if ( sg < 0 )
+			{
+				// note: to avoid unnecessary negations, we flip the value of "sgn"
+				sgn = -sign_of_int( b7 );
+				a7 -= sgn;
+				del0 -= 1 * ((sgn * b7) >> denshift);
+				if ( del0 >= 0 )
+					continue;
+				
+				sgn = -sign_of_int( b6 );
+				a6 -= sgn;
+				del0 -= 2 * ((sgn * b6) >> denshift);
+				if ( del0 >= 0 )
+					continue;
+				
+				sgn = -sign_of_int( b5 );
+				a5 -= sgn;
+				del0 -= 3 * ((sgn * b5) >> denshift);
+				if ( del0 >= 0 )
+					continue;
+
+				sgn = -sign_of_int( b4 );
+				a4 -= sgn;
+				del0 -= 4 * ((sgn * b4) >> denshift);
+				if ( del0 >= 0 )
+					continue;
+				
+				sgn = -sign_of_int( b3 );
+				a3 -= sgn;
+				del0 -= 5 * ((sgn * b3) >> denshift);
+				if ( del0 >= 0 )
+					continue;
+				
+				sgn = -sign_of_int( b2 );
+				a2 -= sgn;
+				del0 -= 6 * ((sgn * b2) >> denshift);
+				if ( del0 >= 0 )
+					continue;
+				
+				sgn = -sign_of_int( b1 );
+				a1 -= sgn;
+				del0 -= 7 * ((sgn * b1) >> denshift);
+				if ( del0 >= 0 )
+					continue;
+
+				a0 += sign_of_int( b0 );
+			}
+		}
+
+		coefs[0] = a0;
+		coefs[1] = a1;
+		coefs[2] = a2;
+		coefs[3] = a3;
+		coefs[4] = a4;
+		coefs[5] = a5;
+		coefs[6] = a6;
+		coefs[7] = a7;
 	}
 	else
 	{
 //pc_block_general:
 		// general case
 		printf("\nENTERS pc_block else\n");
-		return;
 		for ( j = lim; j < num; j++ )
 		{
 			LOOP_ALIGN
@@ -491,13 +426,13 @@ __global__ void gpu_pc_block(int32_t * in, int32_t * pc1, int32_t num, int16_t *
 			pc1[j] = del;
 			del0 = del;
 
-			sg = (del < 0) ? -1 : (del>0) ? 1 : 0;
+			sg = sign_of_int( del );
 			if ( sg > 0 )
 			{
 				for ( k = (numactive - 1); k >= 0; k-- )
 				{
 					dd = top - pin[-k];
-					sgn = (dd < 0) ? -1 : (dd>0) ? 1 : 0;
+					sgn = sign_of_int( dd );
 					coefs[k] -= sgn;
 					del0 -= (numactive - k) * ((sgn * dd) >> denshift);
 					if ( del0 <= 0 )
@@ -509,7 +444,7 @@ __global__ void gpu_pc_block(int32_t * in, int32_t * pc1, int32_t num, int16_t *
 				for ( k = (numactive - 1); k >= 0; k-- )
 				{
 					dd = top - pin[-k];
-					sgn = (dd < 0) ? -1 : (dd>0) ? 1 : 0;
+					sgn = sign_of_int( dd );
 					coefs[k] += sgn;
 					del0 -= (numactive - k) * ((-sgn * dd) >> denshift);
 					if ( del0 >= 0 )
@@ -518,9 +453,4 @@ __global__ void gpu_pc_block(int32_t * in, int32_t * pc1, int32_t num, int16_t *
 			}
 		}
 	}
-	cudaDeviceSynchronize();
-}
-
-void pc_block(int32_t * in, int32_t * pc1, int32_t num, int16_t * coefs, int32_t numactive, uint32_t chanbits, uint32_t denshift){
-	gpu_pc_block << <1, 1 >> >(in, pc1, num, coefs, numactive, chanbits, denshift);
 }

@@ -41,9 +41,9 @@ class ALACDecoder
 		ALACDecoder();
 		~ALACDecoder();
 
-		int32_t	Init( void * inMagicCookie, uint32_t inMagicCookieSize );
-		int32_t	Decode( struct BitBuffer * bits, uint8_t * sampleBuffer, uint32_t numSamples, uint32_t numChannels, uint32_t * outNumSamples );
-
+		int32_t	Init(void * inMagicCookie, uint32_t inMagicCookieSize, int X);
+		int32_t	Decode(struct BitBuffer * bits, uint32_t numSamples, uint32_t numChannels, uint32_t * outNumSamples, uint32_t outBytesPerPacket, int X);
+		void fillWriteBuffer(void * sampleBuffer, uint32_t numChannels, int32_t theOutputPacketBytes, int X);
 	public:
 		// decoding parameters (public for use in the analyzer)
 		ALACSpecificConfig		mConfig;
@@ -60,6 +60,14 @@ class ALACDecoder
 		int32_t *				mPredictor;
 		uint16_t *				mShiftBuffer;	// note: this points to mPredictor's memory but different
 												//		 variable for clarity and type difference
+
+		long total_numSamples;
+		uint8_t	bytesShifted;
+		int32_t *d_u, *d_v;
+		uint16_t *d_shiftUV;
+		uint32_t *d_numSamples;
+		int32_t * d_mixRes;
+		int32_t 	* d_mixBits;
 };
 
 #endif	/* _ALACDECODER_H */

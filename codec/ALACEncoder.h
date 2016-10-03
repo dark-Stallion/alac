@@ -38,7 +38,7 @@ class ALACEncoder
 		virtual ~ALACEncoder();
 
 		virtual int32_t	Encode(AudioFormatDescription theInputFormat, AudioFormatDescription theOutputFormat,
-                                   unsigned char * theReadBuffer, unsigned char * theWriteBuffer, int32_t * ioNumBytes);
+                                   unsigned char * theReadBuffer, unsigned char * theWriteBuffer, int32_t * ioNumBytes, int index);
 		virtual int32_t	Finish( );
 
 		void				SetFastMode( bool fast ) { mFastMode = fast; };
@@ -50,12 +50,13 @@ class ALACEncoder
         uint32_t            GetMagicCookieSize(uint32_t inNumChannels);
         void				GetMagicCookie( void * config, uint32_t * ioSize ); 
 //		void kALACSearch(int32_t mNumChannels, int32_t kALACMaxSearches);
-        virtual int32_t	InitializeEncoder(AudioFormatDescription theOutputFormat);
-
+		virtual int32_t	InitializeEncoder(AudioFormatDescription theOutputFormat, int X);
+		//virtual int32_t	InitializeEncoder(AudioFormatDescription theOutputFormat, void * d_ip, AudioFormatDescription theInputFormat, int X, int32_t * outBytes);
+		void InitializeSampling(void * d_ip, AudioFormatDescription theInputFormat, int X, int32_t * outBytes);
     protected:
 		virtual void		GetSourceFormat( const AudioFormatDescription * source, AudioFormatDescription * output );
 		
-		int32_t			EncodeStereo(struct BitBuffer * bitstream, void * input, uint32_t stride, uint32_t channelIndex, uint32_t numSamples);
+		int32_t			EncodeStereo( struct BitBuffer * bitstream, void * input, uint32_t stride, uint32_t channelIndex, uint32_t numSamples, int index);
 		int32_t			EncodeStereoFast( struct BitBuffer * bitstream, void * input, uint32_t stride, uint32_t channelIndex, uint32_t numSamples );
 		int32_t			EncodeStereoEscape( struct BitBuffer * bitstream, void * input, uint32_t stride, uint32_t numSamples );
 		int32_t			EncodeMono( struct BitBuffer * bitstream, void * input, uint32_t stride, uint32_t channelIndex, uint32_t numSamples );
@@ -77,15 +78,9 @@ class ALACEncoder
 		
 		uint8_t *					mWorkBuffer;
 
-		// Note: in C you can't typecast to a 2-dimensional array pointer but that's what we need when
-		// picking which coefs to use so we declare this typedef b/c we *can* typecast to this type
-		typedef int16_t(*SearchCoefs)[kALACMaxCoefs];
-
 		// per-channel coefficients buffers
-		int16_t *				mCoefsU;
-		int16_t *				mCoefsV;
-		SearchCoefs				b_coefsU;
-		SearchCoefs				b_coefsV;
+		int16_t					mCoefsU[kALACMaxChannels][kALACMaxSearches][kALACMaxCoefs];
+		int16_t					mCoefsV[kALACMaxChannels][kALACMaxSearches][kALACMaxCoefs];
 
 		// encoding statistics
 		uint32_t					mTotalBytesGenerated;
@@ -94,5 +89,13 @@ class ALACEncoder
         uint32_t                  mFrameSize;
         uint32_t                  mMaxOutputBytes;
         uint32_t                  mNumChannels;
-        uint32_t                  mOutputSampleRate;		
+        uint32_t                  mOutputSampleRate;
+
+		int32_t * d_mMixBufferU;
+		int32_t * d_mMixBufferV;
+		uint16_t * d_mShiftBufferUV;
+
+		int32_t * dev_mMixBufferU;
+		int32_t * dev_mMixBufferV;
+		uint16_t * dev_mShiftBufferUV;
 };
