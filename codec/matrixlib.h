@@ -73,7 +73,7 @@ extern "C" {
 
 	// 20/24/32-bit <-> 32-bit helper routines (not really matrixing but convenient to put here)
 	void	copy20ToPredictor(uint8_t * in, uint32_t stride, int32_t * out, int32_t numSamples);
-	void	copy24ToPredictor(uint8_t * in, uint32_t stride, int32_t * out, int32_t numSamples);
+	void	copy24ToPredictor(uint8_t * in, uint32_t stride, int32_t * out, int32_t numSamples, uint32_t mask, uint32_t shift, uint16_t * mShiftBufferUV);
 
 	void	copyPredictorTo24(int32_t * in, uint8_t * out, uint32_t stride, int32_t numSamples);
 	void	copyPredictorTo24Shift(int32_t * in, uint16_t * shift, uint8_t * out, uint32_t stride, int32_t numSamples, int32_t bytesShifted);

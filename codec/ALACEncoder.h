@@ -59,7 +59,7 @@ class ALACEncoder
 		int32_t			EncodeStereo( struct BitBuffer * bitstream, void * input, uint32_t stride, uint32_t channelIndex, uint32_t numSamples, int index);
 		int32_t			EncodeStereoFast( struct BitBuffer * bitstream, void * input, uint32_t stride, uint32_t channelIndex, uint32_t numSamples );
 		int32_t			EncodeStereoEscape( struct BitBuffer * bitstream, void * input, uint32_t stride, uint32_t numSamples );
-		int32_t			EncodeMono( struct BitBuffer * bitstream, void * input, uint32_t stride, uint32_t channelIndex, uint32_t numSamples );
+		int32_t			EncodeMono(struct BitBuffer * bitstream, void * input, uint32_t stride, uint32_t channelIndex, uint32_t numSamples, int X);
 
 
 		// ALAC encoder parameters

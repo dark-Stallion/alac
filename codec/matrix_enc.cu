@@ -654,18 +654,35 @@ void copy20ToPredictor(uint8_t * in, uint32_t stride, int32_t * out, int32_t num
 	}
 }
 
-void copy24ToPredictor(uint8_t * in, uint32_t stride, int32_t * out, int32_t numSamples)
-{
-	printf("\nENTERS copy24ToPredictor\n");
-	return;
-	uint8_t *	ip = in;
-	int32_t			j;
-	for (j = 0; j < numSamples; j++)
-	{
-		int32_t			val;
-
-		val = (int32_t)(((uint32_t)ip[HBYTE] << 16) | ((uint32_t)ip[MBYTE] << 8) | (uint32_t)ip[LBYTE]);
-		out[j] = (val << 8) >> 8;
-		ip += stride * 3;
-	}
-}
+//__global__ void gpu_copy24ToPredictor(uint8_t * in, uint32_t stride, int32_t * out, int32_t numSamples, uint32_t mask, uint32_t shift, uint16_t * mShiftBufferUV)
+//{
+//	int z = threadIdx.x + blockIdx.x * blockDim.x;
+//	if (z < numSamples)
+//	{
+//		int32_t			val;
+//
+//		in += stride * 3 * z;
+//		val = (int32_t)(((uint32_t)in[HBYTE] << 16) | ((uint32_t)in[MBYTE] << 8) | (uint32_t)in[LBYTE]);
+//		out[z] = (val << 8) >> 8;
+//		mShiftBufferUV[z] = (uint16_t)(out[z] & mask);
+//		out[z] >>= shift;
+//	}
+//}
+//
+//void copy24ToPredictor(uint8_t * in, uint32_t stride, int32_t * out, int32_t numSamples, uint32_t mask, uint32_t shift, uint16_t * mShiftBufferUV)
+//{
+//	printf("\nENTERS copy24ToPredictor\n");
+//
+//	gpu_copy24ToPredictor << <(numSamples + SIZE - 1) / SIZE, SIZE >> >(in, stride, out, numSamples, mask, shift, mShiftBufferUV);
+//
+//	/*uint8_t *	ip = in;
+//	int32_t			j;
+//	for (j = 0; j < numSamples; j++)
+//	{
+//		int32_t			val;
+//
+//		val = (int32_t)(((uint32_t)ip[HBYTE] << 16) | ((uint32_t)ip[MBYTE] << 8) | (uint32_t)ip[LBYTE]);
+//		out[j] = (val << 8) >> 8;
+//		ip += stride * 3;
+//	}*/
+//}

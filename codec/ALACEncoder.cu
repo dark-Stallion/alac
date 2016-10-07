@@ -171,6 +171,7 @@ ALACEncoder::~ALACEncoder()
     {
 		free(mShiftBufferUV);
 		cudaFree(dev_mShiftBufferUV);
+		cudaFree(d_mShiftBufferUV);
         mShiftBufferUV = NULL;
     }
 
@@ -809,10 +810,9 @@ int32_t ALACEncoder::EncodeStereoEscape( BitBuffer * bitstream, void * inputBuff
 	EncodeMono()
 	- encode a mono input buffer
 */
-int32_t ALACEncoder::EncodeMono( BitBuffer * bitstream, void * inputBuffer, uint32_t stride, uint32_t channelIndex, uint32_t numSamples )
+int32_t ALACEncoder::EncodeMono( BitBuffer * bitstream, void * inputBuffer, uint32_t stride, uint32_t channelIndex, uint32_t numSamples, int X )
 {
 
-	printf("\nENTERS EncodeMono\n");
 
 	BitBuffer		startBits = *bitstream;			// squirrel away copy of current state in case we need to go back and do an escape packet
 	AGParamRec		agParams;
@@ -859,34 +859,39 @@ int32_t ALACEncoder::EncodeMono( BitBuffer * bitstream, void * inputBuffer, uint
 	// flag whether or not this is a partial frame
 	partialFrame = (numSamples == mFrameSize) ? 0 : 1;
 
+	
 	// convert N-bit data to 32-bit for predictor
+
 	switch ( mBitDepth )
 	{
 		case 16:
 		{
 			// convert 16-bit data to 32-bit for predictor
-			input16 = (int16_t *) inputBuffer;
-			for ( index = 0, index2 = 0; index < numSamples; index++, index2 += stride )
-				mMixBufferU[index] = (int32_t) input16[index2];
+			//printf("\nENTERS EncodeMono\n");
+			cudaMemcpy(mMixBufferU, d_mMixBufferU + X * mFrameSize, mFrameSize * sizeof(int32_t), cudaMemcpyDeviceToHost);
 			break;
 		}
 		case 20:
 			// convert 20-bit data to 32-bit for predictor
-			copy20ToPredictor( (uint8_t *) inputBuffer, stride, mMixBufferU, numSamples );
+			cudaMemcpy(mMixBufferU, d_mMixBufferU + X * mFrameSize, mFrameSize * sizeof(int32_t), cudaMemcpyDeviceToHost);
 			break;
 		case 24:
 			// convert 24-bit data to 32-bit for the predictor and extract the shifted off byte(s)
-			copy24ToPredictor( (uint8_t *) inputBuffer, stride, mMixBufferU, numSamples );
-			for ( index = 0; index < numSamples; index++ )
+			//copy24ToPredictor((uint8_t *)inputBuffer, stride, dev_mMixBufferU, numSamples, mask, shift, dev_mShiftBufferUV);
+			cudaMemcpy(mShiftBufferUV, d_mShiftBufferUV + X * 2 * mFrameSize, 2 * mFrameSize * sizeof(uint16_t), cudaMemcpyDeviceToHost);
+
+			/*for ( index = 0; index < numSamples; index++ )
 			{
 				mShiftBufferUV[index] = (uint16_t)(mMixBufferU[index] & mask);
 				mMixBufferU[index] >>= shift;
-			}
+			}*/
 			break;
 		case 32:
 		{
 			// just copy the 32-bit input data for the predictor and extract the shifted off byte(s)
-			input32 = (int32_t *) inputBuffer;
+			cudaMemcpy(mShiftBufferUV, d_mShiftBufferUV + X * 2 * mFrameSize, 2 * mFrameSize * sizeof(uint16_t), cudaMemcpyDeviceToHost);
+
+			/*input32 = (int32_t *) inputBuffer;
 
 			for ( index = 0, index2 = 0; index < numSamples; index++, index2 += stride )
 			{
@@ -894,7 +899,7 @@ int32_t ALACEncoder::EncodeMono( BitBuffer * bitstream, void * inputBuffer, uint
 				
 				mShiftBufferUV[index] = (uint16_t)(val & mask);
 				mMixBufferU[index] = val >> shift;
-			}
+			}*/
 			break;
 		}
 	}
@@ -988,44 +993,45 @@ int32_t ALACEncoder::EncodeMono( BitBuffer * bitstream, void * inputBuffer, uint
 		}
 	}
 
-	if ( doEscape == true )
-	{
-		// write bitstream header and coefs
-		BitBufferWrite( bitstream, 0, 12 );
-		BitBufferWrite( bitstream, (partialFrame << 3) | 1, 4 );	// LSB = 1 means "frame not compressed"
-		if ( partialFrame )
-			BitBufferWrite( bitstream, numSamples, 32 );
-
-		// just copy the input data to the output buffer
-		switch ( mBitDepth )
-		{
-			case 16:
-				input16 = (int16_t *) inputBuffer;
-				for ( index = 0; index < (numSamples * stride); index += stride )
-					BitBufferWrite( bitstream, input16[index], 16 );
-				break;
-			case 20:
-				// convert 20-bit data to 32-bit for simplicity
-				copy20ToPredictor( (uint8_t *) inputBuffer, stride, mMixBufferU, numSamples );
-				for ( index = 0; index < numSamples; index++ )
-					BitBufferWrite( bitstream, mMixBufferU[index], 20 );
-				break;
-			case 24:
-				// convert 24-bit data to 32-bit for simplicity
-				copy24ToPredictor( (uint8_t *) inputBuffer, stride, mMixBufferU, numSamples );
-				for ( index = 0; index < numSamples; index++ )
-					BitBufferWrite( bitstream, mMixBufferU[index], 24 );
-				break;
-			case 32:
-				input32 = (int32_t *) inputBuffer;
-				for ( index = 0; index < (numSamples * stride); index += stride )
-					BitBufferWrite( bitstream, input32[index], 32 );
-				break;
-		}
-#if VERBOSE_DEBUG		
-		DebugMsg( "escape!: %lu vs %lu", minBits, (numSamples * mBitDepth) );
-#endif
-	}
+//	if ( doEscape == true )
+//	{
+//		printf("escapes\n");
+//		// write bitstream header and coefs
+//		BitBufferWrite( bitstream, 0, 12 );
+//		BitBufferWrite( bitstream, (partialFrame << 3) | 1, 4 );	// LSB = 1 means "frame not compressed"
+//		if ( partialFrame )
+//			BitBufferWrite( bitstream, numSamples, 32 );
+//
+//		// just copy the input data to the output buffer
+//		switch ( mBitDepth )
+//		{
+//			case 16:
+//				input16 = (int16_t *) inputBuffer;
+//				for ( index = 0; index < (numSamples * stride); index += stride )
+//					BitBufferWrite( bitstream, input16[index], 16 );
+//				break;
+//			case 20:
+//				// convert 20-bit data to 32-bit for simplicity
+//				copy20ToPredictor( (uint8_t *) inputBuffer, stride, mMixBufferU, numSamples );
+//				for ( index = 0; index < numSamples; index++ )
+//					BitBufferWrite( bitstream, mMixBufferU[index], 20 );
+//				break;
+//			case 24:
+//				// convert 24-bit data to 32-bit for simplicity
+//				copy24ToPredictor( (uint8_t *) inputBuffer, stride, mMixBufferU, numSamples );
+//				for ( index = 0; index < numSamples; index++ )
+//					BitBufferWrite( bitstream, mMixBufferU[index], 24 );
+//				break;
+//			case 32:
+//				input32 = (int32_t *) inputBuffer;
+//				for ( index = 0; index < (numSamples * stride); index += stride )
+//					BitBufferWrite( bitstream, input32[index], 32 );
+//				break;
+//		}
+//#if VERBOSE_DEBUG		
+//		DebugMsg( "escape!: %lu vs %lu", minBits, (numSamples * mBitDepth) );
+//#endif
+//	}
 
 Exit:
 	return status;
@@ -1052,6 +1058,12 @@ int32_t ALACEncoder::Encode(AudioFormatDescription theInputFormat, AudioFormatDe
 	// create a bit buffer structure pointing to our output buffer
 	BitBufferInit( &bitstream, theWriteBuffer, mMaxOutputBytes );
 
+	void* d_theReadBuffer;
+
+	cudaMalloc(&d_theReadBuffer, *ioNumBytes);
+
+	cudaMemcpy(d_theReadBuffer, theReadBuffer, *ioNumBytes, cudaMemcpyHostToDevice);
+
 	if ( theInputFormat.mChannelsPerFrame == 2 )
 	{
 
@@ -1059,12 +1071,7 @@ int32_t ALACEncoder::Encode(AudioFormatDescription theInputFormat, AudioFormatDe
 		BitBufferWrite( &bitstream, ID_CPE, 3 );
 		BitBufferWrite( &bitstream, 0, 4 );
 
-		void* d_theReadBuffer;
-
-		cudaMalloc(&d_theReadBuffer, *ioNumBytes);
 		
-		cudaMemcpy(d_theReadBuffer, theReadBuffer, *ioNumBytes, cudaMemcpyHostToDevice);
-
 		// encode stereo input buffer
 		if ( mFastMode == false )
 			status = this->EncodeStereo(&bitstream, d_theReadBuffer, 2, 0, numFrames, index);
@@ -1076,12 +1083,13 @@ int32_t ALACEncoder::Encode(AudioFormatDescription theInputFormat, AudioFormatDe
 	}
 	else if ( theInputFormat.mChannelsPerFrame == 1 )
 	{
+
 		// add 3-bit frame start tag ID_SCE = mono channel & 4-bit element instance tag = 0
 		BitBufferWrite( &bitstream, ID_SCE, 3 );
 		BitBufferWrite( &bitstream, 0, 4 );
 
 		// encode mono input buffer
-		status = this->EncodeMono( &bitstream, theReadBuffer, 1, 0, numFrames );
+		status = this->EncodeMono(&bitstream, d_theReadBuffer, 1, 0, numFrames, index);
 		RequireNoErr( status, goto Exit; );
 	}
 	else
@@ -1113,7 +1121,7 @@ int32_t ALACEncoder::Encode(AudioFormatDescription theInputFormat, AudioFormatDe
 					// mono
 					BitBufferWrite( &bitstream, monoElementTag, 4 );
 
-					status = this->EncodeMono( &bitstream, inputBuffer, theInputFormat.mChannelsPerFrame, channelIndex, numFrames );
+					status = this->EncodeMono( &bitstream, inputBuffer, theInputFormat.mChannelsPerFrame, channelIndex, numFrames, index );
 					
 					inputBuffer += inputIncrement;
 					channelIndex++;
@@ -1173,7 +1181,7 @@ int32_t ALACEncoder::Encode(AudioFormatDescription theInputFormat, AudioFormatDe
 					// LFE channel (subwoofer)
 					BitBufferWrite( &bitstream, lfeElementTag, 4 );
 
-					status = this->EncodeMono( &bitstream, inputBuffer, theInputFormat.mChannelsPerFrame, channelIndex, numFrames );
+					status = this->EncodeMono( &bitstream, inputBuffer, theInputFormat.mChannelsPerFrame, channelIndex, numFrames, index );
 
 					inputBuffer += inputIncrement;
 					channelIndex++;
@@ -1522,14 +1530,86 @@ __global__ void gpu_mix32(int32_t * ip, uint32_t stride, int32_t * u, int32_t * 
 	}
 }
 
+__global__ void gpu_copy16ToPredictor(int16_t * ip, uint32_t stride, int32_t * u, int32_t * numSamples, uint32_t mFrameSize)
+{
+	int block = blockIdx.x % 4;
+	int index = blockIdx.x / 4;
+	int z = threadIdx.x + block * blockDim.x;
+
+	if (z < numSamples[index])
+	{
+		int16_t * in = ip + (index * numSamples[0]) / 2;
+		int32_t * out = u + index * mFrameSize;
+
+		out[z] = (int32_t)in[stride * z];
+	}
+}
+
+__global__ void gpu_copy20ToPredictor(uint8_t * ip, uint32_t stride, int32_t * u, int32_t * numSamples, uint32_t mFrameSize)
+{
+	int block = blockIdx.x % 4;
+	int index = blockIdx.x / 4;
+	int z = threadIdx.x + block * blockDim.x;
+
+	if (z < numSamples[index])
+	{
+		uint8_t * in = ip + (index * numSamples[0]);
+		int32_t * out = u + index * mFrameSize;
+
+		int32_t			val;
+
+		in += stride * 3 * z;
+		val = (int32_t)(((uint32_t)in[HBYTE] << 16) | ((uint32_t)in[MBYTE] << 8) | (uint32_t)in[LBYTE]);
+		out[z] = (val << 8) >> 12;
+	}
+}
+
+__global__ void gpu_copy24ToPredictor(uint8_t * ip, uint32_t stride, int32_t * u, int32_t * numSamples, uint32_t mask, uint32_t shift, uint16_t * mShiftBufferUV, uint32_t mFrameSize)
+{
+	int block = blockIdx.x % 4;
+	int index = blockIdx.x / 4;
+	int z = threadIdx.x + block * blockDim.x;
+
+	if (z < numSamples[index])
+	{
+		uint8_t * in = ip + (index * numSamples[0]);
+		int32_t * out = u + index * mFrameSize;
+
+		int32_t	val;
+
+		in += stride * 3 * z;
+		val = (int32_t)(((uint32_t)in[HBYTE] << 16) | ((uint32_t)in[MBYTE] << 8) | (uint32_t)in[LBYTE]);
+		out[z] = (val << 8) >> 8;
+		(mShiftBufferUV + index * mFrameSize * 2)[z] = (uint16_t)(out[z] & mask);
+		out[z] >>= shift;
+	}
+}
+
+__global__ void gpu_copy32ToPredictor(int32_t * ip, uint32_t stride, int32_t * u, int32_t * numSamples, uint32_t mask, uint32_t shift, uint16_t * mShiftBufferUV, uint32_t mFrameSize)
+{
+	int block = blockIdx.x % 4;
+	int index = blockIdx.x / 4;
+	int z = threadIdx.x + block * blockDim.x;
+
+	if (z < numSamples[index])
+	{
+		int32_t * in = ip + (index * numSamples[0]) / 4;
+		int32_t * out = u + index * mFrameSize;
+
+		int32_t	val = in[stride * z];
+		(mShiftBufferUV + index * mFrameSize * 2)[z] = (uint16_t)(val & mask);
+		out[z] = val >> shift;
+	}
+}
+
 void ALACEncoder::InitializeSampling(void * d_theReadBuffer, AudioFormatDescription theInputFormat, int X, int32_t * outBytes){
 
 	
 
-	/*long total = 0;
+	long total = 0;
 
 	for (int i = 0; i < X; i++)
-		total += outBytes[i];*/
+		total += outBytes[i];
 
 	//void* d_theReadBuffer;
 	int32_t * d_outBytes;
@@ -1552,25 +1632,46 @@ void ALACEncoder::InitializeSampling(void * d_theReadBuffer, AudioFormatDescript
 	int32_t	shift = bytesShifted * 8;
 	uint32_t	mask = (1ul << shift) - 1;
 
-	switch (mBitDepth){
-		case 16:{
-			gpu_mix16 << <5 * X, (outBytes[0] / theInputFormat.mBytesPerPacket) / 8 >> >((int16_t *)d_theReadBuffer, 2, d_mMixBufferU, d_mMixBufferV,
-				kDefaultMixBits, d_outBytes, theInputFormat.mBytesPerPacket);
-			break;
+	if (theInputFormat.mChannelsPerFrame == 2)
+	{
+
+		switch (mBitDepth){
+			case 16:{
+				gpu_mix16 << <5 * X, (outBytes[0] / theInputFormat.mBytesPerPacket) / 8 >> >((int16_t *)d_theReadBuffer, 2, d_mMixBufferU, d_mMixBufferV,
+					kDefaultMixBits, d_outBytes, theInputFormat.mBytesPerPacket);
+				break;
+			}
+			case 20:{
+				gpu_mix20 << <5 * X, (outBytes[0] / theInputFormat.mBytesPerPacket) / 8 >> >((uint8_t *)d_theReadBuffer, 2, d_mMixBufferU, d_mMixBufferV, d_outBytes, theInputFormat.mBytesPerPacket, kDefaultMixBits);
+				break;
+			}
+			case 24:{
+				// includes extraction of shifted-off bytes
+				gpu_mix24 << <5 * X, (outBytes[0] / theInputFormat.mBytesPerPacket) / 8 >> >((uint8_t *)d_theReadBuffer, 2, d_mMixBufferU, d_mMixBufferV, d_outBytes, theInputFormat.mBytesPerPacket, kDefaultMixBits, bytesShifted, shift, mask);
+				break;
+			}
+			case 32:{
+				// includes extraction of shifted-off bytes
+				gpu_mix32 << <5 * X, (outBytes[0] / theInputFormat.mBytesPerPacket) / 8 >> >((int32_t *)d_theReadBuffer, 2, d_mMixBufferU, d_mMixBufferV, d_outBytes, theInputFormat.mBytesPerPacket, kDefaultMixBits, bytesShifted, shift, mask);
+				break;
+			}
 		}
-		case 20:{
-			gpu_mix20 << <5 * X, (outBytes[0] / theInputFormat.mBytesPerPacket) / 8 >> >((uint8_t *)d_theReadBuffer, 2, d_mMixBufferU, d_mMixBufferV, d_outBytes, theInputFormat.mBytesPerPacket, kDefaultMixBits);
-			break;
-		}
-		case 24:{
-			// includes extraction of shifted-off bytes
-			gpu_mix24 << <5 * X, (outBytes[0] / theInputFormat.mBytesPerPacket) / 8 >> >((uint8_t *)d_theReadBuffer, 2, d_mMixBufferU, d_mMixBufferV, d_outBytes, theInputFormat.mBytesPerPacket, kDefaultMixBits, bytesShifted, shift, mask);
-			break;
-		}
-		case 32:{
-			// includes extraction of shifted-off bytes
-			gpu_mix32 << <5 * X, (outBytes[0] / theInputFormat.mBytesPerPacket) / 8 >> >((int32_t *)d_theReadBuffer, 2, d_mMixBufferU, d_mMixBufferV, d_outBytes, theInputFormat.mBytesPerPacket, kDefaultMixBits, bytesShifted, shift, mask);
-			break;
+	}
+	else if (theInputFormat.mChannelsPerFrame == 1){
+		switch (mBitDepth)
+		{
+			case 16:
+				gpu_copy16ToPredictor << <(total + SIZE - 1) / SIZE, SIZE >> >((int16_t *)d_theReadBuffer, 1, d_mMixBufferU, d_outBytes, mFrameSize);	
+				break;
+			case 20:
+				gpu_copy20ToPredictor << <(total + SIZE - 1) / SIZE, SIZE >> >((uint8_t *)d_theReadBuffer, 1, d_mMixBufferU, d_outBytes, mFrameSize);
+				break;
+			case 24:
+				gpu_copy24ToPredictor << <(total + SIZE - 1) / SIZE, SIZE >> >((uint8_t *)d_theReadBuffer, 1, d_mMixBufferU, d_outBytes, mask, shift, d_mShiftBufferUV, mFrameSize);
+				break;
+			case 32:
+				gpu_copy32ToPredictor << <(total + SIZE - 1) / SIZE, SIZE >> >((int32_t *)d_theReadBuffer, 1, d_mMixBufferU, d_outBytes, mask, shift, d_mShiftBufferUV, mFrameSize);
+				break;
 		}
 	}
 	cudaDeviceSynchronize();
@@ -1636,7 +1737,7 @@ int32_t ALACEncoder::InitializeEncoder(AudioFormatDescription theOutputFormat, i
 	// allocate combined shift buffer
 	mShiftBufferUV = (uint16_t *) calloc( mFrameSize * 2 * sizeof(uint16_t),1 );
 	cudaMalloc(&dev_mShiftBufferUV, 2 * mFrameSize * sizeof(uint16_t));
-	
+	cudaMalloc(&d_mShiftBufferUV, X * (kMaxRes + 1) * 2 * mFrameSize * sizeof(uint16_t));
 
 
 	// allocate work buffer for search loop
