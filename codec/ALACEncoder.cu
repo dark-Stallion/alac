@@ -1078,7 +1078,6 @@ int32_t ALACEncoder::Encode(AudioFormatDescription theInputFormat, AudioFormatDe
 		else
 			status = this->EncodeStereoFast(&bitstream, theReadBuffer, 2, 0, numFrames); 
 
-		cudaFree(d_theReadBuffer);
 		RequireNoErr( status, goto Exit; );
 	}
 	else if ( theInputFormat.mChannelsPerFrame == 1 )
@@ -1108,6 +1107,7 @@ int32_t ALACEncoder::Encode(AudioFormatDescription theInputFormat, AudioFormatDe
 		stereoElementTag	= 0;
 		monoElementTag		= 0;
 		lfeElementTag		= 0;
+
 		printf("\nENTERS theInputFormat.mChannelsPerFrame\n");
 		printf("\ntheInputFormat.mChannelsPerFrame %d\n", theInputFormat.mChannelsPerFrame);
 		for ( channelIndex = 0; channelIndex < theInputFormat.mChannelsPerFrame; )
@@ -1132,7 +1132,7 @@ int32_t ALACEncoder::Encode(AudioFormatDescription theInputFormat, AudioFormatDe
 					// stereo
 					BitBufferWrite( &bitstream, stereoElementTag, 4 );
 
-					void* d_theReadBuffer;
+					/*void* d_theReadBuffer;
 
 					switch (mBitDepth)
 					{
@@ -1152,7 +1152,7 @@ int32_t ALACEncoder::Encode(AudioFormatDescription theInputFormat, AudioFormatDe
 							cudaMalloc(&d_theReadBuffer, theInputFormat.mChannelsPerFrame * numFrames * sizeof(int32_t));
 							cudaMemcpy(d_theReadBuffer, inputBuffer, theInputFormat.mChannelsPerFrame * numFrames * sizeof(int32_t), cudaMemcpyHostToDevice);
 						}
-					}
+					}*/
 
 					status = this->EncodeStereo(&bitstream, d_theReadBuffer, theInputFormat.mChannelsPerFrame, channelIndex, numFrames, index);
 
@@ -1197,6 +1197,9 @@ int32_t ALACEncoder::Encode(AudioFormatDescription theInputFormat, AudioFormatDe
 			RequireNoErr( status, goto Exit; );
 		}
 	}
+
+
+	cudaFree(d_theReadBuffer);
 
 #if VERBOSE_DEBUG
 {

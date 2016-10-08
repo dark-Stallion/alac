@@ -53,6 +53,7 @@ class ALACDecoder
 		int32_t	DataStreamElement( struct BitBuffer * bits );
 
 		uint16_t					mActiveElements;
+		uint8_t				tag;
 
 		// decoding buffers
 		int32_t *				mMixBufferU;

@@ -220,6 +220,59 @@ __global__ void gpu_unmix16(int32_t * u, int32_t * v, int16_t * out, uint32_t st
 }
 
 
+__global__ void gpu_unmix20(int32_t * u, int32_t * v, uint8_t * out, uint32_t stride, uint32_t * numSamples, int32_t * mixbits, int32_t * mixres, int32_t theOutputPacketBytes, uint32_t frameLength)
+{
+	int block = blockIdx.x % 4;
+	int index = blockIdx.x / 4;
+	int z = threadIdx.x + block * blockDim.x;
+
+	if (z < numSamples[index])
+	{
+
+		int32_t		l, r;
+		uint8_t * op = out + (index * theOutputPacketBytes) / 2;
+
+		if (mixres[index] != 0)
+		{
+			/* matrixed stereo */
+			l = (u + index * frameLength)[z] + (v + index * frameLength)[z] - ((mixres[index] * (v + index * frameLength)[z]) >> mixbits[index]);
+			r = l - (v + index * frameLength)[z];
+
+			l <<= 4;
+			r <<= 4;
+
+			op += 3 * z;
+			op += (stride - 1) * 3 * z;
+			op[HBYTE] = (uint8_t)((l >> 16) & 0xffu);
+			op[MBYTE] = (uint8_t)((l >> 8) & 0xffu);
+			op[LBYTE] = (uint8_t)((l >> 0) & 0xffu);
+			op += 3;
+
+			op[HBYTE] = (uint8_t)((r >> 16) & 0xffu);
+			op[MBYTE] = (uint8_t)((r >> 8) & 0xffu);
+			op[LBYTE] = (uint8_t)((r >> 0) & 0xffu);
+		}
+		else
+		{
+			/* Conventional separated stereo. */
+			int32_t		val;
+
+			val = (u + index * frameLength)[z] << 4;
+			op += 3 * z;
+			op += (stride - 1) * 3 * z;
+			op[HBYTE] = (uint8_t)((val >> 16) & 0xffu);
+			op[MBYTE] = (uint8_t)((val >> 8) & 0xffu);
+			op[LBYTE] = (uint8_t)((val >> 0) & 0xffu);
+			op += 3;
+
+			val = (v + index * frameLength)[z] << 4;
+			op[HBYTE] = (uint8_t)((val >> 16) & 0xffu);
+			op[MBYTE] = (uint8_t)((val >> 8) & 0xffu);
+			op[LBYTE] = (uint8_t)((val >> 0) & 0xffu);
+		}
+	}
+}
+
 // 24-bit routines
 // - the 24 bits of data are right-justified in the input/output predictor buffers
 
@@ -323,39 +376,181 @@ __global__ void gpu_unmix32(int32_t * u, int32_t * v, int32_t * out, uint32_t st
 	}
 }
 
+__global__ void gpu_copyPredictorTo16(int32_t * in, int16_t * out, uint32_t stride, uint32_t * numSamples, int32_t theOutputPacketBytes, uint32_t frameLength)
+{
+	int block = blockIdx.x % 4;
+	int index = blockIdx.x / 4;
+	int z = threadIdx.x + block * blockDim.x;
+
+	if (z < numSamples[index])
+	{
+		int16_t * op = out + (index * theOutputPacketBytes)/2;
+		
+		op[z] = (int16_t)(in + index * frameLength)[z];
+	}
+}
+
+__global__ void gpu_copyPredictorTo20(int32_t * in, uint8_t * out, uint32_t stride, uint32_t * numSamples, int32_t theOutputPacketBytes, uint32_t frameLength)
+{
+	int block = blockIdx.x % 4;
+	int index = blockIdx.x / 4;
+	int z = threadIdx.x + block * blockDim.x;
+
+	if (z < numSamples[index])
+	{
+		uint8_t * op = out + (index * theOutputPacketBytes);
+		int32_t	val = (in + index * frameLength)[z];
+		op += (stride * 3 * z);
+
+		op[HBYTE] = (uint8_t)((val >> 12) & 0xffu);
+		op[MBYTE] = (uint8_t)((val >> 4) & 0xffu);
+		op[LBYTE] = (uint8_t)((val << 4) & 0xffu);
+	}
+}
+
+__global__ void gpu_copyPredictorTo24(int32_t * in, uint8_t * out, uint32_t stride, uint32_t * numSamples, int32_t theOutputPacketBytes, uint32_t frameLength)
+{
+	int block = blockIdx.x % 4;
+	int index = blockIdx.x / 4;
+	int z = threadIdx.x + block * blockDim.x;
+
+	if (z < numSamples[index])
+	{
+		uint8_t * op = out + (index * theOutputPacketBytes);
+		int32_t	val = (in + index * frameLength)[z];
+		op += (stride * 3 * z);
+
+		op[HBYTE] = (uint8_t)((val >> 16) & 0xffu);
+		op[MBYTE] = (uint8_t)((val >> 8) & 0xffu);
+		op[LBYTE] = (uint8_t)((val >> 0) & 0xffu);
+	}
+}
+
+__global__ void gpu_copyPredictorTo24Shift(int32_t * in, uint16_t * shift, uint8_t * out, uint32_t stride, uint32_t * numSamples, int32_t bytesShifted, int32_t theOutputPacketBytes, uint32_t frameLength)
+{
+
+	int block = blockIdx.x % 4;
+	int index = blockIdx.x / 4;
+	int z = threadIdx.x + block * blockDim.x;
+
+	if (z < numSamples[index])
+	{
+		uint8_t * op = out + (index * theOutputPacketBytes);
+		int32_t	shiftVal = bytesShifted * 8;
+
+		//Assert( bytesShifted != 0 );
+
+		int32_t	val = (in + index * frameLength)[z];
+
+		val = (val << shiftVal) | (uint32_t)(shift + index * frameLength * 2 )[z];
+
+
+		op += (stride * 3 * z);
+		op[HBYTE] = (uint8_t)((val >> 16) & 0xffu);
+		op[MBYTE] = (uint8_t)((val >> 8) & 0xffu);
+		op[LBYTE] = (uint8_t)((val >> 0) & 0xffu);
+	}
+}
+
+__global__ void gpu_copyPredictorTo32(int32_t * in, int32_t * out, uint32_t stride, uint32_t * numSamples, int32_t theOutputPacketBytes, uint32_t frameLength)
+{
+	int block = blockIdx.x % 4;
+	int index = blockIdx.x / 4;
+	int z = threadIdx.x + block * blockDim.x;
+
+	if (z < numSamples[index])
+	{
+		int32_t * op = out + (index * theOutputPacketBytes)/4;
+		op[stride * z] = (in + index * frameLength)[z];
+
+	}
+}
+
+__global__ void gpu_copyPredictorTo32Shift(int32_t * in, uint16_t * shift, int32_t * out, uint32_t stride, uint32_t * numSamples, int32_t bytesShifted, int32_t theOutputPacketBytes, uint32_t frameLength)
+{
+
+	int block = blockIdx.x % 4;
+	int index = blockIdx.x / 4;
+	int z = threadIdx.x + block * blockDim.x;
+
+	if (z < numSamples[index])
+	{
+		int32_t * op = out + (index * theOutputPacketBytes)/4;
+		int32_t	shiftVal = bytesShifted * 8;
+
+		//Assert( bytesShifted != 0 );
+
+		op += stride * z;
+		op[0] = ((in + index * frameLength)[z] << shiftVal) | (uint32_t)(shift + index * frameLength * 2)[z];
+
+	}
+}
 
 void ALACDecoder::fillWriteBuffer(void * sampleBuffer, uint32_t numChannels, int32_t theOutputPacketBytes, int X){
 
-	switch (mConfig.bitDepth)
-	{
-	case 16:
-		//out = &((int16_t *)sampleBuffer)[channelIndex];
-		//cudaMalloc(&d_out, numChannels * numSamples * sizeof(int16_t));
-		gpu_unmix16 << < ((total_numSamples + SIZE - 1) / SIZE), SIZE >> >(d_u, d_v, (int16_t *)sampleBuffer,
-			numChannels, d_numSamples, d_mixBits, d_mixRes, theOutputPacketBytes, mConfig.frameLength);
-		//printf("%d\n", ((total_numSamples + SIZE - 1) / SIZE));
-		//cudaMemcpy(out16, d_out, numChannels * numSamples * sizeof(int16_t), cudaMemcpyDeviceToHost);
-		break;
-	case 20:
-		//out = (uint8_t *)sampleBuffer + (channelIndex * 3);
-		//unmix20(d_u, d_v, out20, numChannels, numSamples, mixBits, mixRes);
-		break;
-	case 24:
-		//out = (uint8_t *)sampleBuffer + (channelIndex * 3);
-		//cudaMalloc(&d_out, numChannels * 3 * numSamples * sizeof(uint8_t));
-		//cudaMemcpy(d_shiftUV, mShiftBuffer, 2 * numSamples * sizeof(uint16_t), cudaMemcpyHostToDevice);
-		gpu_unmix24 << <((total_numSamples + SIZE - 1) / SIZE), SIZE >> >(d_u, d_v, (uint8_t *)sampleBuffer,
-			numChannels, d_numSamples, d_mixBits, d_mixRes, d_shiftUV, (int32_t)bytesShifted, theOutputPacketBytes, mConfig.frameLength);
-		//cudaMemcpy(out24, d_out, numChannels * 3 * numSamples * sizeof(uint8_t), cudaMemcpyDeviceToHost);
-		break;
-	case 32:
-		//out = &((int32_t *)sampleBuffer)[channelIndex];
-		//cudaMalloc(&d_out, numChannels * numSamples * sizeof(int32_t));
-		//cudaMemcpy(d_shiftUV, mShiftBuffer, 2 * numSamples * sizeof(uint16_t), cudaMemcpyHostToDevice);
-		gpu_unmix32 << <((total_numSamples + SIZE - 1) / SIZE), SIZE >> >(d_u, d_v, (int32_t *)sampleBuffer,
-			numChannels, d_numSamples, d_mixBits, d_mixRes, d_shiftUV, (int32_t)bytesShifted, theOutputPacketBytes, mConfig.frameLength);
-		//cudaMemcpy(out32, d_out, numChannels * numSamples * sizeof(int32_t), cudaMemcpyDeviceToHost);
-		break;
+	switch (tag){
+
+		case ID_SCE:
+		case ID_LFE:
+		{
+			switch (mConfig.bitDepth)
+			{
+				case 16:
+					gpu_copyPredictorTo16 << <((total_numSamples + SIZE - 1) / SIZE), SIZE >> >(d_u, (int16_t *)sampleBuffer,
+						numChannels, d_numSamples, theOutputPacketBytes, mConfig.frameLength);
+					break;
+				case 20:
+					gpu_copyPredictorTo20 << <((total_numSamples + SIZE - 1) / SIZE), SIZE >> >(d_u, (uint8_t *)sampleBuffer,
+						numChannels, d_numSamples, theOutputPacketBytes, mConfig.frameLength);
+					break;
+				case 24:
+					if (bytesShifted != 0){
+						gpu_copyPredictorTo24Shift << <((total_numSamples + SIZE - 1) / SIZE), SIZE >> >(d_u, d_shiftUV, (uint8_t *)sampleBuffer,
+							numChannels, d_numSamples, (int32_t)bytesShifted, theOutputPacketBytes, mConfig.frameLength);
+					}
+					else{
+						gpu_copyPredictorTo24 << <((total_numSamples + SIZE - 1) / SIZE), SIZE >> >(d_u, (uint8_t *)sampleBuffer,
+							numChannels, d_numSamples, theOutputPacketBytes, mConfig.frameLength);
+					}
+					break;
+				case 32:
+					if (bytesShifted != 0){
+						gpu_copyPredictorTo32Shift << <((total_numSamples + SIZE - 1) / SIZE), SIZE >> >(d_u, d_shiftUV, (int32_t *)sampleBuffer,
+						numChannels, d_numSamples, (int32_t)bytesShifted, theOutputPacketBytes, mConfig.frameLength);
+					}
+					else{
+						gpu_copyPredictorTo32 << <((total_numSamples + SIZE - 1) / SIZE), SIZE >> >(d_u, (int32_t *)sampleBuffer,
+						numChannels, d_numSamples, theOutputPacketBytes, mConfig.frameLength);
+					}
+					break;
+			}
+			break;
+		}
+		case ID_CPE:
+		{
+			switch (mConfig.bitDepth)
+			{
+				case 16:
+					gpu_unmix16 << < ((total_numSamples + SIZE - 1) / SIZE), SIZE >> >(d_u, d_v, (int16_t *)sampleBuffer,
+						numChannels, d_numSamples, d_mixBits, d_mixRes, theOutputPacketBytes, mConfig.frameLength);
+					break;
+				case 20:
+					gpu_unmix20 << < ((total_numSamples + SIZE - 1) / SIZE), SIZE >> >(d_u, d_v, (uint8_t *)sampleBuffer,
+						numChannels, d_numSamples, d_mixBits, d_mixRes, theOutputPacketBytes, mConfig.frameLength);
+					break;
+				case 24:
+					gpu_unmix24 << <((total_numSamples + SIZE - 1) / SIZE), SIZE >> >(d_u, d_v, (uint8_t *)sampleBuffer,
+						numChannels, d_numSamples, d_mixBits, d_mixRes, d_shiftUV, (int32_t)bytesShifted, theOutputPacketBytes, mConfig.frameLength);
+					//cudaMemcpy(out24, d_out, numChannels * 3 * numSamples * sizeof(uint8_t), cudaMemcpyDeviceToHost);
+					break;
+				case 32:
+					gpu_unmix32 << <((total_numSamples + SIZE - 1) / SIZE), SIZE >> >(d_u, d_v, (int32_t *)sampleBuffer,
+						numChannels, d_numSamples, d_mixBits, d_mixRes, d_shiftUV, (int32_t)bytesShifted, theOutputPacketBytes, mConfig.frameLength);
+					break;
+			}
+			break;
+		}
+
 	}
 
 }
@@ -370,7 +565,6 @@ int32_t ALACDecoder::Decode(BitBuffer * bits, uint32_t numSamples, uint32_t numC
 {
 	BitBuffer			shiftBits;
 	uint32_t            bits1, bits2;
-	uint8_t				tag;
 	uint8_t				elementInstanceTag;
 	AGParamRec			agParams;
 	uint32_t				channelIndex;
@@ -536,33 +730,12 @@ int32_t ALACDecoder::Decode(BitBuffer * bits, uint32_t numSamples, uint32_t numC
 				}
 
 				// convert 32-bit integers into output buffer
-				switch ( mConfig.bitDepth )
-				{
-					printf("comes here!");
-					/*case 16:
-						out16 = &((int16_t *)sampleBuffer)[channelIndex];
-						for ( i = 0, j = 0; i < numSamples; i++, j += numChannels )
-							out16[j] = (int16_t) mMixBufferU[i];
-						break;
-					case 20:
-						out20 = (uint8_t *)sampleBuffer + (channelIndex * 3);
-						copyPredictorTo20( mMixBufferU, out20, numChannels, numSamples );
-						break;
-					case 24:
-						out24 = (uint8_t *)sampleBuffer + (channelIndex * 3);
-						if ( bytesShifted != 0 )
-							copyPredictorTo24Shift( mMixBufferU, mShiftBuffer, out24, numChannels, numSamples, bytesShifted );
-						else
-							copyPredictorTo24( mMixBufferU, out24, numChannels, numSamples );							
-						break;
-					case 32:
-						out32 = &((int32_t *)sampleBuffer)[channelIndex];
-						if ( bytesShifted != 0 )
-							copyPredictorTo32Shift( mMixBufferU, mShiftBuffer, out32, numChannels, numSamples, bytesShifted );
-						else
-							copyPredictorTo32( mMixBufferU, out32, numChannels, numSamples);
-						break;*/
-				}
+
+				cudaMemcpy(d_u + (X * mConfig.frameLength), mMixBufferU, mConfig.frameLength * sizeof(int32_t), cudaMemcpyHostToDevice);
+				cudaMemcpy(d_shiftUV + (X * mConfig.frameLength * 2), mShiftBuffer, mConfig.frameLength * sizeof(int32_t), cudaMemcpyHostToDevice);
+				cudaMemcpy(d_numSamples + X, &numSamples, sizeof(int32_t), cudaMemcpyHostToDevice);
+
+				total_numSamples += numSamples;
 
 				channelIndex += 1;
 				*outNumSamples = numSamples;
@@ -729,46 +902,12 @@ int32_t ALACDecoder::Decode(BitBuffer * bits, uint32_t numSamples, uint32_t numC
 
 				//printf("%d\n", bytesShifted);
 
-
-				/*cudaMemcpy(d_u, mMixBufferU, mConfig.frameLength * sizeof(int32_t), cudaMemcpyHostToDevice);
-				cudaMemcpy(d_v, mMixBufferV, mConfig.frameLength * sizeof(int32_t), cudaMemcpyHostToDevice);
-				cudaMemcpy(d_shiftUV, mShiftBuffer, mConfig.frameLength * sizeof(int32_t), cudaMemcpyHostToDevice);*/
-
 				cudaMemcpy(d_u + (X * mConfig.frameLength), mMixBufferU, mConfig.frameLength * sizeof(int32_t), cudaMemcpyHostToDevice);
 				cudaMemcpy(d_v + (X * mConfig.frameLength), mMixBufferV, mConfig.frameLength * sizeof(int32_t), cudaMemcpyHostToDevice);
 				cudaMemcpy(d_shiftUV + (X * mConfig.frameLength * 2), mShiftBuffer, mConfig.frameLength * sizeof(int32_t), cudaMemcpyHostToDevice);
 				cudaMemcpy(d_numSamples + X, &numSamples, sizeof(int32_t), cudaMemcpyHostToDevice);
 				cudaMemcpy(d_mixRes + X, &mixRes, sizeof(int8_t), cudaMemcpyHostToDevice);
 				cudaMemcpy(d_mixBits + X, &mixBits, sizeof(uint8_t), cudaMemcpyHostToDevice);
-				//printf("%d\n", mixBits);
-				//printf("channelindex %d\n",channelIndex);
-				//switch ( mConfig.bitDepth )
-				//{
-				//	case 16:
-				//		//out = &((int16_t *)sampleBuffer)[channelIndex];
-				//		//cudaMalloc(&d_out, numChannels * numSamples * sizeof(int16_t));
-				//		gpu_unmix16 << <(numSamples + SIZE - 1) / SIZE, SIZE>>>(d_u, d_v, (int16_t *)sampleBuffer, numChannels, numSamples, mixBits, mixRes);
-				//		//cudaMemcpy(out16, d_out, numChannels * numSamples * sizeof(int16_t), cudaMemcpyDeviceToHost);
-				//		break;
-				//	case 20:
-				//		//out = (uint8_t *)sampleBuffer + (channelIndex * 3);
-				//		unmix20(d_u, d_v, out20, numChannels, numSamples, mixBits, mixRes);
-				//		break;
-				//	case 24:
-				//		//out = (uint8_t *)sampleBuffer + (channelIndex * 3);
-				//		//cudaMalloc(&d_out, numChannels * 3 * numSamples * sizeof(uint8_t));
-				//		//cudaMemcpy(d_shiftUV, mShiftBuffer, 2 * numSamples * sizeof(uint16_t), cudaMemcpyHostToDevice);
-				//		gpu_unmix24 << <(numSamples + SIZE - 1) / SIZE, SIZE >> >(d_u, d_v, (uint8_t *)sampleBuffer, numChannels, numSamples, mixBits, mixRes, d_shiftUV, bytesShifted);
-				//		//cudaMemcpy(out24, d_out, numChannels * 3 * numSamples * sizeof(uint8_t), cudaMemcpyDeviceToHost);
-				//		break;
-				//	case 32:
-				//		//out = &((int32_t *)sampleBuffer)[channelIndex];
-				//		//cudaMalloc(&d_out, numChannels * numSamples * sizeof(int32_t));
-				//		//cudaMemcpy(d_shiftUV, mShiftBuffer, 2 * numSamples * sizeof(uint16_t), cudaMemcpyHostToDevice);
-				//		gpu_unmix32 << <(numSamples + SIZE - 1) / SIZE, SIZE >> >(d_u, d_v, (int32_t *)sampleBuffer, numChannels, numSamples, mixBits, mixRes, d_shiftUV, bytesShifted);
-				//		//cudaMemcpy(out32, d_out, numChannels * numSamples * sizeof(int32_t), cudaMemcpyDeviceToHost);
-				//		break;
-				//}
 
 				total_numSamples += numSamples;
 
