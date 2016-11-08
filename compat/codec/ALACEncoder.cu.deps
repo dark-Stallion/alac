@@ -394,7 +394,5 @@ c:\users\rafid\documents\github\alac\codec\CudaAlacEncoder.cuh
 c:\users\rafid\documents\github\alac\codec\aglib.h
 c:\users\rafid\documents\github\alac\codec\dplib.h
 c:\users\rafid\documents\github\alac\codec\matrixlib.h
-C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v7.5\include\cuda_runtime.h
-C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v7.5\include\device_launch_parameters.h
 c:\users\rafid\documents\github\alac\codec\ALACBitUtilities.h
 c:\users\rafid\documents\github\alac\codec\EndianPortable.h

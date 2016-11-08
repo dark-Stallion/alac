@@ -84,16 +84,21 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\..\..\codec\ag_dec.c" />
-    <CudaCompile Include="..\..\..\codec\ag_enc.cu" />
+    <ClCompile Include="..\..\..\codec\ag_enc.c">
+      <FileType>Document</FileType>
+    </ClCompile>
     <ClCompile Include="..\..\..\codec\ALACBitUtilities.c" />
     <CudaCompile Include="..\..\..\codec\ALACDecoder.cu" />
     <CudaCompile Include="..\..\..\codec\ALACEncoder.cu" />
     <ClCompile Include="..\..\..\codec\dp_dec.c" />
-    <CudaCompile Include="..\..\..\codec\dp_enc.cu">
+    <ClCompile Include="..\..\..\codec\dp_enc.c">
       <CodeGeneration Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">compute_20,sm_20</CodeGeneration>
-    </CudaCompile>
+      <FileType>Document</FileType>
+    </ClCompile>
     <ClCompile Include="..\..\..\codec\EndianPortable.c" />
-    <CudaCompile Include="..\..\..\codec\matrix_dec.cu" />
+    <ClCompile Include="..\..\..\codec\matrix_dec.c">
+      <FileType>Document</FileType>
+    </ClCompile>
     <CudaCompile Include="..\..\..\codec\matrix_enc.cu" />
   </ItemGroup>
   <ItemGroup>

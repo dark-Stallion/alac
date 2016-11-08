@@ -393,7 +393,6 @@ int32_t EncodeALAC(FILE * inputFile, FILE * outputFile, AudioFormatDescription t
 	int32_t theInputPacketBytes = theInputFormat.mChannelsPerFrame * (theInputFormat.mBitsPerChannel >> 3) * theOutputFormat.mFramesPerPacket;
     int32_t theOutputPacketBytes = theInputPacketBytes + kALACMaxEscapeHeaderBytes;
     int32_t thePacketTableSize = 0, packetTablePos = 0, dataPos = 0, dataSizePos = 0, theBERSize = 0, packetTableSizePos;
-//  uint8_t * theReadBuffer = (uint8_t *)calloc(theInputPacketBytes, 1);
     uint8_t * theWriteBuffer = (uint8_t *)calloc(theOutputPacketBytes, 1);
     int32_t numBytes = 0;
     uint32_t packetTableBytesLeft = 0;
@@ -403,6 +402,8 @@ int32_t EncodeALAC(FILE * inputFile, FILE * outputFile, AudioFormatDescription t
     uint8_t * theMagicCookie = NULL;
     uint32_t theMagicCookieSize = 0;
     
+
+	//cudaProfilerStart();
 
 	int index = 0;
 	int X = (inputDataBytesRemaining / theInputPacketBytes) + 1;
@@ -462,17 +463,10 @@ int32_t EncodeALAC(FILE * inputFile, FILE * outputFile, AudioFormatDescription t
     
     dataPos = ftell(outputFile);
 
-
-
-
 	int32_t * outBytes = (int32_t*)malloc(X * sizeof(int32_t));
-	//uint8_t ** d_theReadBuffer = (uint8_t **)malloc(X);
-	//uint8_t * arrayData1 = (uint8_t *)malloc(X * theInputPacketBytes);
 
 	uint8_t * theReadBuffer;
 	cudaHostAlloc(&theReadBuffer, theInputPacketBytes, cudaHostAllocDefault);
-	//for (int i = 0; i < X; i++)
-	//	d_theReadBuffer[i] = arrayData1 + i * theInputPacketBytes;
 
 	void* b_theReadBuffer;
 	cudaMalloc(&b_theReadBuffer, X *theInputPacketBytes);
@@ -483,7 +477,6 @@ int32_t EncodeALAC(FILE * inputFile, FILE * outputFile, AudioFormatDescription t
 	while (ipb <= idbr)
 	{
 		numBytes = fread(theReadBuffer, 1, ipb, inputFile);			// reads a part of the inputfile to the readbuffer and returns number of bytes read
-		//		printf("%d\t", numBytes);
 		idbr -= numBytes;
 		outBytes[index] = numBytes;
 		if ((theInputFormat.mFormatFlags & 0x02) != kALACFormatFlagsNativeEndian)
@@ -513,7 +506,6 @@ int32_t EncodeALAC(FILE * inputFile, FILE * outputFile, AudioFormatDescription t
 			}
 		}
 
-		//		printf("%d\n", outBytes[index]);
 		cudaMemcpy((uint8_t *)b_theReadBuffer + index * theInputPacketBytes, (uint8_t *)theReadBuffer, outBytes[index], cudaMemcpyHostToDevice);
 		index++;
 	}
@@ -521,7 +513,6 @@ int32_t EncodeALAC(FILE * inputFile, FILE * outputFile, AudioFormatDescription t
 	if (idbr)
 	{
 		numBytes = fread(theReadBuffer, 1, idbr, inputFile);
-		//		printf("%d\t", numBytes);
 		idbr -= numBytes;
 		outBytes[index] = numBytes;
 		if ((theInputFormat.mFormatFlags & 0x02) != kALACFormatFlagsNativeEndian)
@@ -552,14 +543,7 @@ int32_t EncodeALAC(FILE * inputFile, FILE * outputFile, AudioFormatDescription t
 		}
 		cudaMemcpy((uint8_t *)b_theReadBuffer + index * theInputPacketBytes, (uint8_t *)theReadBuffer, outBytes[index], cudaMemcpyHostToDevice);
 		index++;
-		//		printf("%d\n", numBytes);
 	}
-
-	cudaProfilerStart();
-
-	
-	//for (int i = 0; i < X; i++)
-	//	cudaMemcpy((uint8_t *)b_theReadBuffer + i * outBytes[0], (uint8_t *)arrayData1 + i * outBytes[0], outBytes[i], cudaMemcpyHostToDevice);
 
 	theEncoder->InitializeSampling(b_theReadBuffer, theInputFormat, X, outBytes);
 
@@ -567,18 +551,11 @@ int32_t EncodeALAC(FILE * inputFile, FILE * outputFile, AudioFormatDescription t
 
     while (theInputPacketBytes <= inputDataBytesRemaining)
     {
-//		printf("%d\t%d\t", theInputPacketBytes, inputDataBytesRemaining);
 		cudaMemcpy(theReadBuffer, (uint8_t *)b_theReadBuffer + index * outBytes[0], theInputPacketBytes, cudaMemcpyDeviceToHost);
-		//theReadBuffer = arrayData1 + index * outBytes[0];
 		numBytes = outBytes[index];
-//		printf("%d\t",numBytes);
         inputDataBytesRemaining -= numBytes;
 
-		//printf("%d\t%d\t%d\t%d\n", theReadBuffer[0], theReadBuffer[1], theReadBuffer[2], theReadBuffer[3]);
-//		printf("-->%d\t", theWriteBuffer[z]);
         theEncoder->Encode(theInputFormat, theInputFormat, theReadBuffer, theWriteBuffer, &numBytes, index);
-//		printf("<--%d\t", theWriteBuffer[z]);
-//		printf("%d\n", numBytes);
 
         GetBERInteger(numBytes, theReadBuffer, &theBERSize);
         fseek(outputFile, packetTablePos, SEEK_SET);
@@ -595,26 +572,18 @@ int32_t EncodeALAC(FILE * inputFile, FILE * outputFile, AudioFormatDescription t
         printf ("Writing %i bytes\n", numBytes);
 #endif
     }
+
     // encode the last partial packet
     if (inputDataBytesRemaining)
 	{
-//		printf("\n%d\t", inputDataBytesRemaining);
-		//theReadBuffer = arrayData1 + index * outBytes[0];
 		cudaMemcpy(theReadBuffer, (uint8_t *)b_theReadBuffer + index * outBytes[0], inputDataBytesRemaining, cudaMemcpyDeviceToHost);
 		numBytes = outBytes[index];
-//		printf("%d\t",numBytes);
 #if VERBOSE
         printf ("Last Packet! Read %i bytes\n", numBytes);
 #endif
-		//printf("%d\t%d\t%d\t%d\n", theReadBuffer[5], theReadBuffer[6], theReadBuffer[7],
-									//theReadBuffer[8]);
         inputDataBytesRemaining -= numBytes;
-//		printf("--->enters\n");
-		//printf("%d\t%d\t%d\t%d\n", theReadBuffer[0], theReadBuffer[1], theReadBuffer[2], theReadBuffer[3]);
-        theEncoder->Encode(theInputFormat, theInputFormat, theReadBuffer, theWriteBuffer, &numBytes, index);
 
-//		printf("<---leaves\n");
-//		printf("%d\n", numBytes);
+        theEncoder->Encode(theInputFormat, theInputFormat, theReadBuffer, theWriteBuffer, &numBytes, index);
 
         GetBERInteger(numBytes, theReadBuffer, &theBERSize);
         fseek(outputFile, packetTablePos, SEEK_SET);
@@ -630,7 +599,6 @@ int32_t EncodeALAC(FILE * inputFile, FILE * outputFile, AudioFormatDescription t
         printf ("Writing %i bytes\n", numBytes);
 #endif
 	}
-	cudaProfilerStop();
 
 	delete theEncoder;
 	cudaFreeHost(theReadBuffer);
@@ -638,6 +606,8 @@ int32_t EncodeALAC(FILE * inputFile, FILE * outputFile, AudioFormatDescription t
 	free(theWriteBuffer);
 	free(outBytes);
 	theReadBuffer = NULL;
+
+	//cudaProfilerStop();
 
     // cleanup -- if we have a lot of bytes left over in packet table, write a free chunk
     if (packetTableBytesLeft > sizeof(port_CAFChunkHeader)) // min size required to write
@@ -664,11 +634,11 @@ int32_t EncodeALAC(FILE * inputFile, FILE * outputFile, AudioFormatDescription t
 // There's not a whole lot of difference between encode and decode on this level
 int32_t DecodeALAC(FILE * inputFile, FILE * outputFile, AudioFormatDescription theInputFormat, AudioFormatDescription theOutputFormat, int32_t inputDataSize, uint32_t outputFileType)
 {
+
     int32_t theInputPacketBytes = theInputFormat.mChannelsPerFrame * (theOutputFormat.mBitsPerChannel >> 3) * theInputFormat.mFramesPerPacket + kALACMaxEscapeHeaderBytes;
     int32_t theOutputPacketBytes = theInputPacketBytes - kALACMaxEscapeHeaderBytes;
     int32_t thePacketTableSize = 0, packetTablePos = 0, outputDataSizePos = 0, inputDataPos = 0;
     uint8_t * theReadBuffer = (uint8_t *)calloc(theInputPacketBytes, 1);
-    uint8_t * theWriteBuffer = (uint8_t *)calloc(theOutputPacketBytes, 1);
     int32_t numBytes = 0;
     int64_t numDataBytes = 0;
     uint32_t numFrames = 0;
@@ -676,14 +646,14 @@ int32_t DecodeALAC(FILE * inputFile, FILE * outputFile, AudioFormatDescription t
     uint8_t * theMagicCookie = NULL;
     uint32_t theMagicCookieSize = 0;
     
-    
+
+
     // We need to get the cookie from the file
     theMagicCookieSize = GetMagicCookieSizeFromCAFFkuki(inputFile);
     theMagicCookie = (uint8_t *)calloc(theMagicCookieSize, 1);
     GetMagicCookieFromCAFFkuki(inputFile, theMagicCookie, &theMagicCookieSize);
     
     // While we don't have a use for this here, if you were using arbitrary channel layouts, you'd need to run the following check:
-    
 	
     free(theMagicCookie);
     
@@ -731,21 +701,16 @@ int32_t DecodeALAC(FILE * inputFile, FILE * outputFile, AudioFormatDescription t
     packetTablePos += numBytes;
     fseek(inputFile, inputDataPos, SEEK_SET);
     inputDataPos += theInputPacketBytes;
-    
-	int X = (inputDataSize / theInputPacketBytes) * 1.2;
 
-	//printf("%d\n", X);
+	int X = (inputDataSize / theInputPacketBytes) * 1.2; // to predict the .wav file size we multiply the input .caf file size by a factor of 1.2
 
 	ALACDecoder * theDecoder = new ALACDecoder;
 	theDecoder->Init(theMagicCookie, theMagicCookieSize, X);
 
 	int32_t * h_numBytes = (int32_t *)calloc(X * sizeof(int32_t), 1);
-	uint8_t * d_theWriteBuffer;
 
-	cudaMalloc(&d_theWriteBuffer, X * theOutputPacketBytes);
+	//cudaProfilerStart();
 	
-
-	//printf("%d\n", inputDataSize / theInputPacketBytes);
 
 	int index = 0;
 
@@ -768,24 +733,21 @@ int32_t DecodeALAC(FILE * inputFile, FILE * outputFile, AudioFormatDescription t
 		index++;
     }
 
-	cudaProfilerStart();
+	free(theReadBuffer);
+
+	uint8_t * theWriteBuffer = (uint8_t *)calloc(theOutputPacketBytes, 1);
+	uint8_t * d_theWriteBuffer;
+	cudaMalloc(&d_theWriteBuffer, index * theOutputPacketBytes);
 
 	theDecoder->fillWriteBuffer(d_theWriteBuffer, theInputFormat.mChannelsPerFrame, theOutputPacketBytes, index);
 
-	cudaDeviceSynchronize();
-
-	cudaProfilerStop();
-	//printf("%d\n", index);
-
 	for (int i = 0; i < index; i++){
 		cudaMemcpy(theWriteBuffer, d_theWriteBuffer + i * theOutputPacketBytes, h_numBytes[i], cudaMemcpyDeviceToHost);
-		//printf("%d\t%d\t%d\t%d\n", theWriteBuffer[0], theWriteBuffer[1], theWriteBuffer[2], theWriteBuffer[3]);
 		fwrite(theWriteBuffer, 1, h_numBytes[i], outputFile);
 	}
 
-
-
-
+	//cudaProfilerStop();
+	
     if (outputFileType != 'WAVE')
     {
         // cleanup -- write out the data size
@@ -806,10 +768,11 @@ int32_t DecodeALAC(FILE * inputFile, FILE * outputFile, AudioFormatDescription t
         WriteWAVEChunkSize(outputFile, numDataBytes + sizeof(outputFileType) + kWAVEdataChunkHeaderSize + kWAVEfmtChunkSize); // add in the size for 'WAVE', size of the data' chunk header and the 'fmt ' chunk
     }
 
+
     delete theDecoder;
-    
-    free(theReadBuffer);
-    free(theWriteBuffer);
+	free(theWriteBuffer);
+	cudaFree(d_theWriteBuffer);
+	free(h_numBytes);
 
     return 0;
 }
